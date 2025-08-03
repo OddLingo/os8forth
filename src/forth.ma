@@ -2,13 +2,24 @@
 	.SBTTL Page zero
 / All machine code is in Field zero so IF register never
 / changes. The dictionary and all interpreted code and
-/ stacks are in Field 1. If the data area needs to grow
-/ to multiple fields, some pointers will have to be two
-/ words long. All interpreted instructions are actually
-/ dictionary entry pointers.
+/ stacks are in Field 1.
 
-SFIELD=10	/ Memory field for stacks
+/ Field 0:
+/   07200-07577 Console I/O handler (large)
+/   07600-07777 OS/8 Fixed
+/ Field 1:
+/   10000-11777 OS/8 User Service Routines
+/   12000-17177 Forth dictionary
+/   17200-17377 Data stack
+/   17400-17577 Return stack
+/ Field 2
+/   20000-20177 Console input buffer
+/   20200-00577 File system input block buffer
+/   20600-20777 File system output block buffer
+
+CFIELD=00	/ Memory field for code
 DFIELD=10	/ Memory field for dictionary
+BFIELD=20	/ Memory field for buffers
 
 	FIELD 0
 	PAGE 0
@@ -128,7 +139,7 @@ BYE,	0		/ Exit to OS/8
 	JMS MSG
 	TEXT \GOODBYE@\
 	JMS CRLF
-	CDF 0
+	CDF CFIELD
 	JMP I (7600)
 
 // Execute compiled FORTH opcodes until RETURN.
@@ -318,14 +329,14 @@ STACKS,	0		/ Initialize both stacks
 	.INCLUDE OS8USR.MA
 TTINIT,	0		/ Initialize OS/8 console I/O
 	// Lock the User Service Routine in memory
-	CDF 00
+	CDF CFIELD
 	USRIN
 
 	// Fetch the console device handler
         CLA
 	TAD (7201
 	DCA TTDEV	/ Request fancy handler
-	CDF 00
+	CDF CFIELD
         USRCALL UFETCH
         DEVICE TTY
 TTDEV,	7001     / Becomes TT handler entry pt
@@ -333,7 +344,7 @@ TTDEV,	7001     / Becomes TT handler entry pt
 
 	// Get the console device number
 	CLA
-	CDF 00
+	CDF CFIELD
         USRCALL UINQUIRE  / Get device number
 	DEVICE TTY	/ +1 becomes device num
 TTNUM=.-1
@@ -342,13 +353,20 @@ TTNUM=.-1
 
 	// Initialize buffer management
 	CLA
-	CIF 00
+	CIF CFIELD
 	CDF DFIELD
 	JMS TTSOL	/ Initialize buffer
 	JMP I TTINIT
 
 TTERR,	ERROR 1
 	JMS BYE
+
+TTLEN,	0		/ Compute output line length
+	CLA
+	TAD (TOB
+	CMA IAC
+	TAD TTOPTR
+	JMP I TTLEN
 
 TTOUT,	0		/ Add AC to output buffer
 	DCA I TTOPTR
@@ -365,6 +383,7 @@ EMIT,	0		/ Output char on stack
 	JMP I EMIT
 
 CRLF,	0		/ End output line
+	CLA
 	TAD (15
 	JMS TTOUT
 	TAD (12
@@ -389,7 +408,7 @@ TTSOL,	0		/ Init output buffer
 TTWRIT,	0		/ Send buffer to console
 	DCA BUF$
 	TAD TTNUM
-	CDF 00
+	CDF CFIELD
         JMS I TTDEV
 	4100+DFIELD	/ Write 1 record from Field 1
 BUF$:   TOB     / Buffer address
@@ -402,9 +421,9 @@ BUF$:   TOB     / Buffer address
 
 TTREAD,	0		/ Read buffer from console
 	TAD TTNUM
-	CDF 00
+	CDF CFIELD
         JMS I TTDEV
-	100+20	/ Read 1 record into Field 2
+	100+BFIELD  / Read 1 record into Field 2
 BUF$:   0001     / Buffer address
 	0       / START BLOCK
         JMP TTERR
@@ -429,8 +448,8 @@ DONE$:	JMS PUSH	/ Put it on the stack
 // Receive a string of at most +n1 characters.
 // Unfortunately, OS8 insists on filling a buffer,
 // multiple of 128 words, with zeros.  So we use
-// a temprary buffer in Field 2 then copy to
-// where it is expected.
+// a buffer in Field 2 then copy to where it is
+// expected.
 ACCEPT,	0
 	JMS TTREAD
 	TAD I SP	/ Save buffer size
@@ -447,7 +466,7 @@ ACCEPT,	0
 	TAD I SP
 	DCA TEXT2	
 
-LOOP$:	CDF 20		/ Get one char
+LOOP$:	CDF BFIELD	/ Get one char
 	CLA
 	TAD I TEXT1	/ from far buffer
 	CDF DFIELD
@@ -498,7 +517,7 @@ LOOP$:	TAD I TEXT1	/ Advance and fetch
 /// Print a fixed message in sixbit following the call.
 /// End with zero, so the text must not contain "@".
 MSG,	0
-LOOP$:	CDF 0		/ We can indirect through MSG
+LOOP$:	CDF CFIELD	/ We can indirect through MSG
 	TAD I MSG	/ Get next 2 chars
 	CDF DFIELD
 	ISZ MSG		/ Advance over
@@ -735,7 +754,7 @@ GENOP,	0		/ Lay down a literal at runtime
 
 LAYLIT,	0		/ Lay a literal and skip it
 	CLA
-	CDF 00		/ Fetch from instruction space
+	CDF CFIELD	/ Fetch from instruction space
 	TAD I LAYLIT
 	CDF DFIELD
 	JMS LAYDN
@@ -856,7 +875,7 @@ DOVAR,	0
 SYSCON,	0		/ runtime for System constants
 	TAD I DPTR	/ Get the value
 	DCA T1
-	CDF 00
+	CDF CFIELD
 	TAD I T1
 	CDF DFIELD	/ Field One back on
 	JMS PUSH
@@ -1005,29 +1024,30 @@ FSTORE,	0		/ ( n addr fld -- )
 	PAGE
 	.SBTTL Memory
 
-FETCH,	0
+FETCH,	0		/ ( addr -- n )
 	TAD I SP	/Get the address
 	DCA TOS
 	TAD TOS		/ Compare with 0200
 	TAD LOMEM
 	SPA		/ Do not change field over 0200
-	CDF 00
+	CDF CFIELD
 	CLA
 	TAD I TOS
 	CDF DFIELD
 	DCA I SP
 	JMP I FETCH
 
-STORE,	0
+STORE,	0		/ ( n addr -- )
 	TAD I SP	/GET ADDRESS
 	DCA TOS
 	ISZ SP
 	TAD I SP	/GET VALUE
+	ISZ SP
 	DCA T1
 	TAD TOS		/ Compare address with 0200
 	TAD LOMEM
 	SPA		/ Do change field if > 0200
-	CDF 00
+	CDF CFIELD
 	CLA
 	TAD T1
 	DCA I TOS
@@ -1693,6 +1713,7 @@ LOOP$:	JMS SPACE
 	JMP I DOTS
 
 SPACE,	0
+	CLA
 	TAD ASPACE
 	JMS TTOUT
 	JMP I SPACE
@@ -1711,6 +1732,10 @@ WORDS,	0
 	TAD DICT
 	DCA CURENT
 LOOP$:	JMS PNAME	/ Print this name
+	JMS TTLEN
+	TAD (-72)
+	SMA
+	JMS CRLF	/ Nice wrap
 	JMS SPACE
 	ISZ CURENT	/ Find link word
 	TAD I CURENT	/ Fetch link
