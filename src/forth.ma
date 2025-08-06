@@ -21,14 +21,14 @@ CFIELD=00	/ Memory field for code
 DFIELD=10	/ Memory field for dictionary
 BFIELD=20	/ Memory field for buffers
 
+	.XSECT SCAN
 	FIELD 0
-	PAGE 0
-	*10
 /// Auto-index registers used for scanning
 TEXT1,	0	/ Pointer to dictionary name text.
 TEXT2,	0
 
-	*0020
+	.ZSECT COMMON
+	FIELD 0
 /// Forth machine registers
 SP,	0	/ Data stack pointer
 RSP,	0	/ Return stack pointer
@@ -112,10 +112,10 @@ LAYDN,	0
 	ISZ HERE
 	JMP I LAYDN
 
-.SBTTL Startup
-
+	.RSECT ENGINE
+	.SBTTL Startup
+
 /// Start execution here
-	PAGE 1
 	.START .
 INIT,	IOF		/ No interrupts
 	CLA 
@@ -236,7 +236,7 @@ LINE$:	TAD TIBPTR	/ Read a line
 
 	/ Get the next word but check end of line.
 NEXTW$:	TAD INOFF
-	CMA IAC
+	CIA
 	TAD LINLEN
 	SPA
 	JMP END$ 	/ Overflowed
@@ -325,7 +325,6 @@ STACKS,	0		/ Initialize both stacks
 	.SBTTL Input
 
 	PAGE
-	.LIST MEB
 	.INCLUDE OS8USR.MA
 TTINIT,	0		/ Initialize OS/8 console I/O
 	// Lock the User Service Routine in memory
@@ -336,7 +335,6 @@ TTINIT,	0		/ Initialize OS/8 console I/O
         CLA
 	TAD (7201
 	DCA TTDEV	/ Request fancy handler
-	CDF CFIELD
         USRCALL UFETCH
         DEVICE TTY
 TTDEV,	7001     / Becomes TT handler entry pt
@@ -344,7 +342,6 @@ TTDEV,	7001     / Becomes TT handler entry pt
 
 	// Get the console device number
 	CLA
-	CDF CFIELD
         USRCALL UINQUIRE  / Get device number
 	DEVICE TTY	/ +1 becomes device num
 TTNUM=.-1
@@ -353,18 +350,16 @@ TTNUM=.-1
 
 	// Initialize buffer management
 	CLA
-	CIF CFIELD
 	CDF DFIELD
 	JMS TTSOL	/ Initialize buffer
 	JMP I TTINIT
 
 TTERR,	ERROR 1
-	JMS BYE
 
 TTLEN,	0		/ Compute output line length
 	CLA
 	TAD (TOB
-	CMA IAC
+	CIA
 	TAD TTOPTR
 	JMP I TTLEN
 
@@ -431,8 +426,6 @@ BUF$:   0001     / Buffer address
 	CDF DFIELD
 	JMP I TTREAD
 
-	.NOLIST MEB
-
 KEY,	0		/ Wait for a key ( -- ch )
 	KSF		/ Wait for key
 	JMP	.-1
@@ -454,7 +447,7 @@ ACCEPT,	0
 	JMS TTREAD
 	TAD I SP	/ Save buffer size
 	ISZ SP
-	CMA IAC
+	CIA
 	DCA LIMIT	/ User limit
 	TAD LOMEM
 	IAC
@@ -505,7 +498,7 @@ TYPE,	0
 	TAD COUNT
 	SNA
 	JMP I TYPE	/ Do nothing if count zero
-	CMA IAC		/ Make negative
+	CIA		/ Make negative
 	DCA LIMIT
 
 LOOP$:	TAD I TEXT1	/ Advance and fetch
@@ -558,7 +551,7 @@ TO8,	0		/ Convert 6b to 8b
 	PAGE
 COMP,	0		/ Subtract for comparison
 	TAD I SP
-	CMA IAC
+	CIA
 	ISZ SP
 	TAD I SP
 	CLL
@@ -574,13 +567,13 @@ WITHIN,	0		/ ( v lo hi -- flag )
 	TAD I SP
 	DCA T1		/ Test value
 	TAD COUNT	/ Check lower limit
-	CMA IAC
+	CIA
 	TAD T1
 	SPA
 	JMP NOTIN$
 	CLA
 	TAD LIMIT	/ Check upper limit
-	CMA IAC
+	CIA
 	TAD T1
 	SPA
 	JMP NOTIN$
@@ -880,6 +873,12 @@ SYSCON,	0		/ runtime for System constants
 	CDF DFIELD	/ Field One back on
 	JMS PUSH
 	JMP I SYSCON
+
+ISLIT,	0     / Push a literal from dictionary
+	TAD I DPTR
+	JMS PUSH
+	JMP I SYSCON
+
 	PAGE
 
 	.SBTTL Convert to Sixbit
@@ -964,12 +963,68 @@ A6DEV,	0		/ Pad SIXBIT to 4 characters
 	TAD (-4)
 	JMP A6PAD
 
+	PAGE
+GETCH,	0		/ Get CH
+	TAD LIMIT
+	SNA
+	JMP I GETCH	/ Previously exhausted
+	ISZ LIMIT
+	JMP OK$
+	JMP I GETCH	/ Non-skip return
+OK$:	TAD I TEXT1	/ Skip return with ch
+	JMS A6ADD
+	JMS GETCH
+	JMP I GETCH
+
+PUTCH,	0		/ Convert ch limited by T1
+	ISZ T1
+	JMP OK$
+	JMP I PUTCH	/ Nonskip return when full
+OK$:	JMS A6ADD	/ Convert + skip return
+	ISZ PUTCH
+	JMP I PUTCH
+
+// Convert an ASCII string into a SIXBIT
+// filename for use by file operations.
+CVTFIL,	0
+	TAD I SP	/ Length on stack
+	CIA
+	DCA LIMIT
+	ISZ SP
+	CLA CMA
+	TAD I SP	/ Start of string
+	DCA TEXT1
+	ISZ SP
+	TAD SEEK6	/ Use the dictionary buffer
+	JMS A6INIT
+	TAD (-6		/ Output limit
+	DCA T1
+FLOOP$:	JMS GETCH	/ Copy filename part
+	JMP DOT$	/ End of input
+	DCA CHAR
+	TAD CHAR	/ Is it period?
+	TAD (-".)
+	SNA
+	JMP DOT$	/ Yes, do extension
+	TAD (".)
+	JMS PUTCH
+	JMP FLOOP$
+DOT$:	JMS A6FILE
+	TAD (-2		/ Now 2 char extension
+	DCA T1
+XLOOP$:	JMS GETCH	/ Copy extension
+	JMP FDONE$	/ End of input
+	JMS PUTCH
+	JMP XLOOP$
+FDONE$:	JMS A6EXT	/ Pad the extension
+	JMP I CVTFIL
+
 TOFILE,	0		/ ( addr len buf -- )
 	TAD I SP
 	JMS A6INIT	/ Set destination
 	ISZ SP
 	TAD I SP
-	CMA IAC
+	CIA
 	DCA LIMIT	/ Set count
 	ISZ SP
 	CLA CMA
@@ -1056,7 +1111,7 @@ STORE,	0		/ ( n addr -- )
 
 MOVE,	0		/ ( adr1 adr2 len -- )
 	TAD I SP	/ count
-	CMA IAC
+	CIA
 	DCA LIMIT
 	ISZ SP
 	CLA CMA		/ destination -1
@@ -1109,7 +1164,7 @@ RSTOR,	0
 
 DEPTH,	0		/ Report stack depth
 	TAD SP
-	CMA IAC
+	CIA
 	TAD SBASE
 	TAD SSIZE
 	JMS PUSH
@@ -1170,7 +1225,7 @@ SWAP,	0		/ ( n1 n2 -- n2 n1 )
 	PAGE
 NEGATE,	0		/ Invert a number
 	TAD I SP
-	CMA IAC
+	CIA
 	DCA I SP
 	JMP I NEGATE
 
@@ -1230,7 +1285,7 @@ PLUS,	0		/ ( a b -- a+b )
 
 MINUS,	0		/ ( a b -- a-b )
 	TAD I SP
-	CMA IAC
+	CIA
 	ISZ SP
 	TAD I SP
 	DCA I SP
@@ -1272,7 +1327,7 @@ DIVSR$:	12
 	DCA T1
 	JMP LOOP$	/ More digits
 GOT$:	TAD COUNT	/ Done, make count negative
-	CMA IAC
+	CIA
 	DCA LIMIT
 OUT$:	CLA		/ Digits are on the stack in reverse order
 	JMS EMIT	/ Get back a digit and print
@@ -1303,7 +1358,7 @@ CREATE,	0
 	TAD I SEEK6	/ Sixbit word count
 	DCA COUNT
 	TAD COUNT
-	CMA IAC
+	CIA
 	DCA LIMIT
 
 	TAD SEEK6	/ Start after the count
@@ -1351,7 +1406,7 @@ COLON,	0
 
 AVAIL,	0		/ Get available memory
 	TAD HERE
-	CMA IAC
+	CIA
 	TAD RBASE	/ Limit is bottom of R-stack
 	JMS PUSH
 	JMP I AVAIL
@@ -1401,7 +1456,7 @@ NXTIN,	0
 // characters within the string.
 WORD,	0		/ Parse one word
 	TAD I SP
-	CMA IAC
+	CIA
 	DCA CHAR	/ Save the negative delimiter
 	CLA CMA
 	TAD WRDPTR	/ Set output pointer -1
@@ -1451,7 +1506,7 @@ CLASS$:	0
 	ISZ CLASS$
 	CLA
 	TAD ASPACE
-	CMA IAC
+	CIA
 	TAD T1
 	SPA
 	JMP I CLASS$	/ Control, skip return
@@ -1490,7 +1545,7 @@ FIXUP,	0		/ Fixup a previous jump
 	ISZ SP
 	DCA T1
 	TAD T1	/ Compute difference
-	CMA IAC
+	CIA
 	TAD HERE
 	DCA I T1	/ Point it to HERE
 	JMP I FIXUP
@@ -1551,7 +1606,7 @@ LITNUM,	0	  / Runtime for a literal number
 	// WRDBUF, result goes on stack.
 NUMLO,	0
 	TAD I WRDPTR
-	CMA IAC
+	CIA
 	DCA LIMIT
 	TAD WRDPTR
 	DCA TEXT1
@@ -1597,7 +1652,7 @@ GETNUM,	0		/ ( dinit caddr len -- dval caddr remain )
 	TAD I SP
 	DCA COUNT
 	TAD COUNT
-	CMA IAC
+	CIA
 	DCA LIMIT	/ Save limit count
 	ISZ SP
 	CMA
@@ -1686,7 +1741,7 @@ LPEND,	0
 	ISZ RSP
 	HLT	//??
 
-SWITCH,	0
+SWITCH,	0		/ Read the console switches
 	OSR
 	JMS PUSH
 	JMP I SWITCH
@@ -1697,7 +1752,7 @@ DOTS,	0
 	// 		/ Calulate how many words
 	JMS DEPTH
 	TAD I SP
-	CMA IAC
+	CIA
 	DCA STKSIZ	/ Should be negative count
 	ISZ SP
 	TAD SP
@@ -1712,7 +1767,7 @@ LOOP$:	JMS SPACE
 	JMS CRLF
 	JMP I DOTS
 
-SPACE,	0
+SPACE,	0		/ Type a space
 	CLA
 	TAD ASPACE
 	JMS TTOUT
@@ -1752,7 +1807,7 @@ PNAME,	0
 	SNA
 	HLT		/ Trying to print missing entry
 	AND LENMSK	/ Words in the name are limit
-	CMA IAC
+	CIA
 	DCA LIMIT
 	TAD CURENT	/ Ptr is already one back
 	TAD LIMIT
@@ -1794,12 +1849,12 @@ FIND,	0		/ Search dictionary
 TRY$:	CLA		/ Try this candidate
 	TAD I THIS	/ Compare lengths
 	AND LENMSK
-	CMA IAC
+	CIA
 	TAD I SEEK6
 	SZA
 	JMP NEXT$	/ Length mismatch
 	TAD I SEEK6	/ Get length again
-	CMA IAC
+	CIA
 	DCA LIMIT	/ Negative words to compare
 
 	TAD SEEK6	/ Point TEXT3 at goal string
@@ -1810,7 +1865,7 @@ TRY$:	CLA		/ Try this candidate
 	DCA TEXT4
 
 SUB$:	TAD I TEXT3	/ Subtract one from the other
-	CMA IAC
+	CIA
 	TAD I TEXT4
 	SZA
 	JMP NEXT$	/ Text mismatch. Skip to next.
@@ -1860,7 +1915,7 @@ PAKNAM,	0
 	JMS A6INIT	/ Initialize converter
 
 	TAD COUNT	/ Convert count to limit
-	CMA IAC
+	CIA
 	DCA LIMIT	/ Negative count of input chars
 
 LOOP6$:	TAD I TEXT1	/ Get ASCII char
@@ -1874,11 +1929,26 @@ LEN6$:	ISZ LIMIT
 	DCA I TEXT3	/ Put it in front
 	JMP I PAKNAM
 
+	.SBTTL File operations
+
+	PAGE
+FILOPN,	0	/ Open a file named by string
+	JMP I FILOPN
+
+FILCLS,	0	/ Open a file named by string
+	JMP I FILOPN
+
+FILRD,	0	/ Open text from a file
+	JMP I FILOPN
+
+FILRDL,	0	/ Read a line from a file
+	JMP I FILOPN
+
 	.SBTTL  Built-in word definitions
 
+	.DSECT PREDEF
 	FIELD 1
 	// 10000 to 11777 are reserved for the OS/8 USR
-	*2000
 WRDBUF,	0;*.+20		/ Assemble ASCII token here
 NAME6,	0;*.+10		/ Sought word here in SIXBIT
 
@@ -1900,6 +1970,12 @@ NAME6,	0;*.+10		/ Sought word here in SIXBIT
 	.DISABLE FILL
 	/.NOLIST
 	B=0
+	TEXT "OPEN-FILE_"; A=.; 5; B; FILOPN
+	TEXT "CLOSE-FILE"; B=.; 5; A; FILCLS
+	TEXT "READ-FILE_"; A=.; 5; B; FILRD
+	TEXT "READ-LINE_"; B=.; 5; A; FILRDL
+	TEXT "R/O_"; A=.; 2; B; ISLIT; 0
+	TEXT "R/W_"; B=.; 2; A; ISLIT; 1
 	TEXT \X@\; A=.; 1; B; FFETCH
 	TEXT \X!\; B=.; 1; A; FSTORE
 	TEXT \CONSTANT\; A=.; 4; B; GENCON
@@ -1983,6 +2059,7 @@ NAME6,	0;*.+10		/ Sought word here in SIXBIT
 	TEXT \OCTAL_\; B=.; 3; A; SET8
 // Terminal Buffers 80 chars each
 	TEXT \TIB_\;   A=.; 2; B; DOVAR
+	.GLOBAL TIB
 TIB,	*.+120
 	TEXT \TOB_\;	B=.; 2; A; DOVAR
 TOB,	*.+120
