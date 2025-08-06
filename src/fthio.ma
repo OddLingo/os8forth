@@ -1,5 +1,5 @@
  	.TITLE OS/8 FORTH Input and output
-	.INCLUDE OS8USR.MA
+	.INCLUDE COMMON.MA
 
 // OS/8 input output routines that managed the
 // buffered system calls.  Routines with names
@@ -30,6 +30,9 @@ OUTPTR,	0
 
 	.ZSECT IOCOMM
 	FIELD 2
+RK1,	.FIB  RKSPOT,,RKIBUF
+RK2,	.FIB  ,,RKOBUF
+
 RESTDF,	CIF
 RKNUM,	0      	    / DSK device number
 TTNUM,	0	    / Console device number
@@ -73,22 +76,17 @@ EXIT$:	HLT    		/ Replaced by CIF instruction
 	FIELD 2
 
 	.ENTRY RKINIT
+DSKNAM,	DEVICE DSK
+
+// Load device handler for file devices
 RKINIT,	0		/ Initialize disk I/O
 	FARENT
-	TAD (RKSPOT	/ Where the handler goes
-	DCA WHERE$
-	USRCALL UFETCH
-	DEVICE RKA1
-WHERE$:	7000
-	HLT
-
-	USRCALL UINQUIRE
-DEV$:	DEVICE RKA1
-	0
-	HLT
-	CLA
-	TAD DEV$+1
-	DCA RKNUM
+	.FETCH DSKNAM,RKSPOT
+	DCA OUTPTR
+	TAD I OUTPTR
+	DCA RK1+DEVNUM
+	TAD I OUTPTR
+	DCA RK1+DEVADR
 	FARETN
 	JMP I RKINIT
 
@@ -110,19 +108,11 @@ LOOP$:	CDF 1
 
 RKOPEN,	0		/ Open file for reading
 	FARENT
-	JMS CPYFIL	/ Make filename local
-	TAD (F1NAM)
-	DCA START$
-	TAD RKNUM
-	USRCALL ULOOK
-START$:	0
-LIMIT$:	0	/ Negative # blocks
-	HLT
-	CLA
-	TAD START$	/ Remember starting block
-	DCA RKIBLK
-	TAD LIMIT$	/ Remember file length
-	DCA RKSIZE
+	/ Parse the string into 6-word block inside
+	/ the FIB.  FORTH uses counted strings but
+	/ .FPARSE expects a NUL terminator.
+	.FPARSE ,RK1+FILSIZ	/ Parse string in AC
+	.IOPEN	RK1,RK1+FILNAM,NOFIL$
 	FARETN
 	JMP I RKOPEN
 

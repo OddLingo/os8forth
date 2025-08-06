@@ -1,5 +1,12 @@
 	.TITLE FORTH interpreter for PDP-8
 	.SBTTL Page zero
+
+	.NOLIST
+
+	.INCLUDE COMMON.MA
+
+	.LIST
+
 / All machine code is in Field zero so IF register never
 / changes. The dictionary and all interpreted code and
 / stacks are in Field 1.
@@ -123,7 +130,6 @@ INIT,	IOF		/ No interrupts
 	JMS STACKS	/ Init stacks
 	KCC		/ Clear device flags
 	TCF
-	JMS TTINIT	/ Initialize console I/O
 	CDF DFIELD	/ Indirect data references to field 1.
 	JMS AVAIL	/ Print available memory
 	JMS DOT
@@ -139,8 +145,7 @@ BYE,	0		/ Exit to OS/8
 	JMS MSG
 	TEXT \GOODBYE@\
 	JMS CRLF
-	CDF CFIELD
-	JMP I (7600)
+	.EXIT
 
 // Execute compiled FORTH opcodes until RETURN.
 // Any machine-code words are called with JMS but
@@ -325,50 +330,8 @@ STACKS,	0		/ Initialize both stacks
 	.SBTTL Input
 
 	PAGE
-	.INCLUDE OS8USR.MA
-TTINIT,	0		/ Initialize OS/8 console I/O
-	// Lock the User Service Routine in memory
-	CDF CFIELD
-	USRIN
-
-	// Fetch the console device handler
-        CLA
-	TAD (7201
-	DCA TTDEV	/ Request fancy handler
-        USRCALL UFETCH
-        DEVICE TTY
-TTDEV,	7001     / Becomes TT handler entry pt
-        JMP TTERR
-
-	// Get the console device number
-	CLA
-        USRCALL UINQUIRE  / Get device number
-	DEVICE TTY	/ +1 becomes device num
-TTNUM=.-1
-        0
-        JMP TTERR
-
-	// Initialize buffer management
-	CLA
-	CDF DFIELD
-	JMS TTSOL	/ Initialize buffer
-	JMP I TTINIT
-
-TTERR,	ERROR 1
-
-TTLEN,	0		/ Compute output line length
-	CLA
-	TAD (TOB
-	CIA
-	TAD TTOPTR
-	JMP I TTLEN
-
 TTOUT,	0		/ Add AC to output buffer
-	DCA I TTOPTR
-	ISZ TTOPTR
-	ISZ TTLIM
-	JMP I TTOUT
-	JMS FLUSH	/ Auto wrap
+	.PUT
 	JMP I TTOUT
 
 EMIT,	0		/ Output char on stack
@@ -383,55 +346,11 @@ CRLF,	0		/ End output line
 	JMS TTOUT
 	TAD (12
 	JMS TTOUT
-	JMS FLUSH
 	JMP I CRLF
 
-FLUSH,	0		/ Send console buffer
-	TAD (32		/ mark end with CTRL-Z
-	DCA I TTOPTR
-	TAD (TOB	/ Buffer address
-	JMS TTWRIT
-	JMP I FLUSH
-
-TTSOL,	0		/ Init output buffer
-	TAD (TOB
-	DCA TTOPTR
-	TAD (-117	/ Leave room for CTRL-Z
-	DCA TTLIM
-	JMP I TTSOL
-
-TTWRIT,	0		/ Send buffer to console
-	DCA BUF$
-	TAD TTNUM
-	CDF CFIELD
-        JMS I TTDEV
-	4100+DFIELD	/ Write 1 record from Field 1
-BUF$:   TOB     / Buffer address
-	0       / START BLOCK
-        JMP TTERR
-	CLA
-	CDF DFIELD
-	JMS TTSOL	/ Restart buffer
-	JMP I TTWRIT
-
-TTREAD,	0		/ Read buffer from console
-	TAD TTNUM
-	CDF CFIELD
-        JMS I TTDEV
-	100+BFIELD  / Read 1 record into Field 2
-BUF$:   0001     / Buffer address
-	0       / START BLOCK
-        JMP TTERR
-	CLA
-	CDF DFIELD
-	JMP I TTREAD
-
 KEY,	0		/ Wait for a key ( -- ch )
-	KSF		/ Wait for key
-	JMP	.-1
-	KRB		/ This does an OR but we know AC=0
-	AND MASK7
-DONE$:	JMS PUSH	/ Put it on the stack
+	.GET
+	JMS PUSH	/ Put it on the stack
 	TAD I SP	/ Type it too
 	JMS TTOUT
 	JMP I KEY
@@ -439,50 +358,14 @@ DONE$:	JMS PUSH	/ Put it on the stack
 	PAGE
 // Read a string ( c-addr +n1 -- +n2 )
 // Receive a string of at most +n1 characters.
-// Unfortunately, OS8 insists on filling a buffer,
-// multiple of 128 words, with zeros.  So we use
-// a buffer in Field 2 then copy to where it is
-// expected.
 ACCEPT,	0
-	JMS TTREAD
 	TAD I SP	/ Save buffer size
+	DCA INP$+2
 	ISZ SP
-	CIA
-	DCA LIMIT	/ User limit
-	TAD LOMEM
-	IAC
-	DCA T1		/ Buffer limit
-	DCA COUNT	/ Actually received
-
-	DCA TEXT1
-	CLA CMA		/ To specified address
-	TAD I SP
-	DCA TEXT2	
-
-LOOP$:	CDF BFIELD	/ Get one char
-	CLA
-	TAD I TEXT1	/ from far buffer
-	CDF DFIELD
-	ISZ COUNT
-	AND MASK7
-	DCA CHAR
-	TAD CHAR
-	DCA I TEXT2
-	TAD (-12	/ Terminator?
-	TAD CHAR
-	SNA
-	JMP DONE$	/ Yes, end
-	ISZ LIMIT
-	JMP INCHK$
-DONE$:	CLA		/ Return actual count
-	TAD COUNT
-	DCA I SP
+	TAD I SP	/ Buffer address
+	DCA INP$+3
+INP$:	.INPUT
 	JMP I ACCEPT
-INCHK$:	ISZ T1		/ Check input buffer
-	JMP LOOP$
-	CLA
-	TAD (12	/ Fake up ending
-	JMP DONE$
 
 	.SBTTL Output
 
@@ -491,14 +374,9 @@ TYPE,	0
 	TAD I SP	/ Get count as limit
 	DCA COUNT
 	ISZ SP
-	CLA CMA		/ Get text ptr back one
 	TAD I SP
-	DCA TEXT1
 	ISZ SP
-	TAD COUNT
-	SNA
-	JMP I TYPE	/ Do nothing if count zero
-	CIA		/ Make negative
+	.PRINT	/?? Assume NUL terminator
 	DCA LIMIT
 
 LOOP$:	TAD I TEXT1	/ Advance and fetch
@@ -1786,13 +1664,17 @@ TRACE,	0
 WORDS,	0
 	TAD DICT
 	DCA CURENT
+	TAD (-10
+	DCA LIMIT
 LOOP$:	JMS PNAME	/ Print this name
-	JMS TTLEN
-	TAD (-72)
-	SMA
-	JMS CRLF	/ Nice wrap
-	JMS SPACE
-	ISZ CURENT	/ Find link word
+	ISZ LIMIT
+	JMP NEXT$
+	JMS CRLF
+START$:	TAD (-10
+	DCA LIMIT
+	JMP BUMP$
+NEXT$:	JMS SPACE
+BUMP$:	ISZ CURENT	/ Find link word
 	TAD I CURENT	/ Fetch link
 	SNA
 	JMP I WORDS	/ Zero means stop
