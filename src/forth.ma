@@ -78,7 +78,7 @@ STTOP,	7577
 RBASE,	7400	/ Bottom of return stack
 RSIZE,	0177
 ASPACE,	40	/ ASCII Space
-AZERO,	200-"0	/ Negative ASCII zero
+NEGZRO,	7720	/ Negative ASCII zero
 LOMEM,	-200	/ Boundary for field 0 references
 MASK6,	0077	/ Sixbit mask
 MASK7,	0177	/ TTI parity mask
@@ -367,6 +367,9 @@ ACCEPT,	0
 	.INPUT
 INBUF$:	0		/ buf
 INLEN$:	0		/ len
+	/ Get length from MQ
+	CLA MQA
+	JMS PUSH
 	JMP I ACCEPT
 
 	.SBTTL Output
@@ -1496,7 +1499,7 @@ LOOP$:	TAD I TEXT1
 	JMS SKPNUM	/ Skip if numeric
 	JMP DONE$
 	TAD CHAR	/ Is numeric, convert to value
-	TAD AZERO
+	TAD NEGZRO	/ Subtract ASCII "0"
 	DCA CHAR
 	TAD TOS		/ Shift previous value
 	MQL		/ Into MQ
@@ -1547,7 +1550,7 @@ LOOP$:	TAD I TEXT1	/ Examine next char
 	JMS SKPNUM	/ Skip if numeric
 	JMP BADNM$
 	TAD CHAR	/ Is numeric so convert to value
-	TAD AZERO
+	TAD NEGZRO
 	DCA CHAR
 	TAD TOS		/ Shift previous value
 	MQL		/ Into MQ
@@ -1595,16 +1598,15 @@ PSEEK,	0		/ Print the sought-after word
 	JMP I PSEEK
 
 	PAGE
-ANINE,	200-":
-AMINUS,	200-"-
+NEGNIN,	7703
 
 SKPNUM,	0		/ Skip if CHAR is numeric
-	TAD AZERO
+	TAD NEGZRO
 	TAD CHAR
 	SPA
 	JMP NOT$
 	CLA
-	TAD ANINE
+	TAD NEGNIN
 	TAD CHAR
 	SMA
 	JMP .+2		/ Not numeric, don't skip
@@ -1840,9 +1842,8 @@ RKSPOT,	ZBLOCK 200
 
 	.DSECT PREDEF
 	FIELD 1
-	// 10000 to 11777 are reserved for the OS/8 USR
-WRDBUF,	0;*.+20		/ Assemble ASCII token here
-NAME6,	0;*.+10		/ Sought word here in SIXBIT
+WRDBUF,	ZBLOCK 20	/ Assemble ASCII token here
+NAME6,	ZBLOCK 10	/ Sought word here in SIXBIT
 
 / Dictionary of built-in words.  Each entry is at least
 / 4 words long so 32 fit on a memory page or 1024 in
@@ -1990,5 +1991,5 @@ TOB,	*.+120
 // This must be the last entry.
 	TEXT \BYE_\; XBYE=.; 2; XHERE; BYE
 	.LIST
-
+	/GLOBAL DCTEND
 DCTEND=.
