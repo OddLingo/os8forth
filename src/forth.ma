@@ -5,6 +5,7 @@
 
 	.INCLUDE COMMON.MA
 
+	.EXTERNAL PUT, GET
 	.LIST
 
 / All machine code is in Field zero so IF register never
@@ -23,10 +24,6 @@
 /   20000-20177 Console input buffer
 /   20200-00577 File system input block buffer
 /   20600-20777 File system output block buffer
-
-CFIELD=00	/ Memory field for code
-DFIELD=10	/ Memory field for dictionary
-BFIELD=20	/ Memory field for buffers
 
 	.XSECT SCAN
 	FIELD 0
@@ -121,6 +118,7 @@ LAYDN,	0
 
 	.RSECT ENGINE
 	.SBTTL Startup
+	.ENABLE SIXBIT
 
 /// Start execution here
 	.START .
@@ -130,7 +128,7 @@ INIT,	IOF		/ No interrupts
 	JMS STACKS	/ Init stacks
 	KCC		/ Clear device flags
 	TCF
-	CDF DFIELD	/ Indirect data references to field 1.
+	CDF DCTEND	/ Indirect data references to field 1.
 	JMS AVAIL	/ Print available memory
 	JMS DOT
 	JMS MSG
@@ -330,8 +328,9 @@ STACKS,	0		/ Initialize both stacks
 	.SBTTL Input
 
 	PAGE
-TTOUT,	0		/ Add AC to output buffer
-	.PUT
+TTOUT,	0
+	JMS PUT
+	CDF DCTEND
 	JMP I TTOUT
 
 EMIT,	0		/ Output char on stack
@@ -348,8 +347,9 @@ CRLF,	0		/ End output line
 	JMS TTOUT
 	JMP I CRLF
 
+	.EXTERNAL GET
 KEY,	0		/ Wait for a key ( -- ch )
-	.GET
+	JMS GET
 	JMS PUSH	/ Put it on the stack
 	TAD I SP	/ Type it too
 	JMS TTOUT
@@ -360,11 +360,13 @@ KEY,	0		/ Wait for a key ( -- ch )
 // Receive a string of at most +n1 characters.
 ACCEPT,	0
 	TAD I SP	/ Save buffer size
-	DCA INP$+2
+	DCA INLEN$
 	ISZ SP
 	TAD I SP	/ Buffer address
-	DCA INP$+3
-INP$:	.INPUT
+	DCA INBUF$
+	.INPUT
+INBUF$:	0		/ buf
+INLEN$:	0		/ len
 	JMP I ACCEPT
 
 	.SBTTL Output
@@ -388,9 +390,9 @@ LOOP$:	TAD I TEXT1	/ Advance and fetch
 /// Print a fixed message in sixbit following the call.
 /// End with zero, so the text must not contain "@".
 MSG,	0
-LOOP$:	CDF CFIELD	/ We can indirect through MSG
+LOOP$:	CDF .		/ We can indirect through MSG
 	TAD I MSG	/ Get next 2 chars
-	CDF DFIELD
+	CDF DCTEND
 	ISZ MSG		/ Advance over
 	SNA
 	JMP I MSG	/ Oops, zero so stop
@@ -625,9 +627,9 @@ GENOP,	0		/ Lay down a literal at runtime
 
 LAYLIT,	0		/ Lay a literal and skip it
 	CLA
-	CDF CFIELD	/ Fetch from instruction space
+	CDF .		/ Fetch from instruction space
 	TAD I LAYLIT
-	CDF DFIELD
+	CDF DCTEND
 	JMS LAYDN
 	ISZ LAYLIT
 	JMP I LAYLIT
@@ -746,9 +748,9 @@ DOVAR,	0
 SYSCON,	0		/ runtime for System constants
 	TAD I DPTR	/ Get the value
 	DCA T1
-	CDF CFIELD
+	CDF .
 	TAD I T1
-	CDF DFIELD	/ Field One back on
+	CDF DCTEND	/ Field One back on
 	JMS PUSH
 	JMP I SYSCON
 
@@ -940,7 +942,7 @@ FFETCH,	0		/ ( addr fld -- n )
 	JMS SETFLD
 	JMS CHANGE
 	TAD I T1	/ Far fetch
-	CDF DFIELD
+	CDF DCTEND
 	DCA I SP
 	JMP I FFETCH
 
@@ -950,7 +952,7 @@ FSTORE,	0		/ ( n addr fld -- )
 	TAD I SP	/ The value
 	JMS CHANGE
 	DCA I T1	/ Far Store
-	CDF DFIELD
+	CDF DCTEND
 	ISZ SP
 	JMP I FSTORE
 
@@ -963,10 +965,10 @@ FETCH,	0		/ ( addr -- n )
 	TAD TOS		/ Compare with 0200
 	TAD LOMEM
 	SPA		/ Do not change field over 0200
-	CDF CFIELD
+	CDF .
 	CLA
 	TAD I TOS
-	CDF DFIELD
+	CDF DCTEND
 	DCA I SP
 	JMP I FETCH
 
@@ -980,11 +982,11 @@ STORE,	0		/ ( n addr -- )
 	TAD TOS		/ Compare address with 0200
 	TAD LOMEM
 	SPA		/ Do change field if > 0200
-	CDF CFIELD
+	CDF .
 	CLA
 	TAD T1
 	DCA I TOS
-	CDF DFIELD
+	CDF DCTEND
 	JMP I STORE
 
 MOVE,	0		/ ( adr1 adr2 len -- )
@@ -1309,7 +1311,7 @@ BL,	0		/ Push a space
 	.SBTTL Parsing input
 
 	PAGE
-/// Consume next input character from TID buffer.
+/// Consume next input character from TIB buffer.
 // Use this instead of KEY in most places. ( -- ch )
 INPTR,	0
 NXTIN,	0
@@ -1815,6 +1817,7 @@ LEN6$:	ISZ LIMIT
 
 	PAGE
 FILOPN,	0	/ Open a file named by string
+/	.IOPEN
 	JMP I FILOPN
 
 FILCLS,	0	/ Open a file named by string
@@ -1825,6 +1828,13 @@ FILRD,	0	/ Open text from a file
 
 FILRDL,	0	/ Read a line from a file
 	JMP I FILOPN
+
+// Reserved area for disk device handler in F0
+	.ASECT RKPARK
+	FIELD 0
+	.GLOBAL RKSPOT
+	*7400
+RKSPOT,	ZBLOCK 200
 
 	.SBTTL  Built-in word definitions
 
@@ -1850,7 +1860,8 @@ NAME6,	0;*.+10		/ Sought word here in SIXBIT
 // underscore.  This is the pattern that FIND will be
 // looking for.
 	.DISABLE FILL
-	/.NOLIST
+	.ENABLE SIXBIT
+	.NOLIST
 	B=0
 	TEXT "OPEN-FILE_"; A=.; 5; B; FILOPN
 	TEXT "CLOSE-FILE"; B=.; 5; A; FILCLS
