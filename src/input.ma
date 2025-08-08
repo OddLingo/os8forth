@@ -87,6 +87,8 @@ ESC$:	TAD	("$)		/Echo $.
 	SKP
 CR$:	TAD	(15)		/Echo CR.
 	JMS	PUT
+	TAD (12)
+	JMS PUT
 NOPE$:	DCA I P$	/CR. Pad buffer with NUL.
 	TAD	CL$	/Get current length.
 	MQL		/Put it in MQ

@@ -8,6 +8,15 @@
 	.EXTERNAL PUT, GET
 	.LIST
 
+/ These are macros so that bounds checking can be
+/ added if required.
+	.MACRO PUSH
+	JMS PUSHS
+	.ENDM
+	.MACRO POP
+	ISZ SP
+	.ENDM
+
 / All machine code is in Field zero so IF register never
 / changes. The dictionary and all interpreted code and
 / stacks are in Field 1.
@@ -72,11 +81,14 @@ LINLEN,	0	/ # of characters in TIB
 LENMSK,	17	/ Length mask in dicitonary header
 IMMFLG,	4000	/ Flag to execute during compilation
 FTHFLG,	2000	/ Flag for interpreted code
+
+/ Stacks are at the top of Field 1.
 SBASE,	7200	/ Bottom of data stack
 SSIZE,	0177
 STTOP,	7577
 RBASE,	7400	/ Bottom of return stack
 RSIZE,	0177
+
 ASPACE,	40	/ ASCII Space
 NEGZRO,	7720	/ Negative ASCII zero
 LOMEM,	-200	/ Boundary for field 0 references
@@ -91,14 +103,14 @@ TIBLEN,	0120	/ 80 characters max per line
 
 // Short routines used in many places.
 TOSTMP,	0		/ Push AC on the data stack
-PUSH,	0
+PUSHS,	0
 	DCA TOSTMP
 	CLA CMA		/ Minus 1
 	TAD SP		/ plus the old SP
 	DCA SP		/ is the new SP
 	TAD TOSTMP
 	DCA I SP
-	JMP I PUSH
+	JMP I PUSHS
 
 // Push AC on the return stack
 PUSHRS,	0
@@ -227,15 +239,15 @@ QUIT,	0
 	DCA STATE
 	DCA SOURCE	/ Console is input
 LINE$:	TAD TIBPTR	/ Read a line
-	JMS PUSH
+	PUSH
 	TAD TIBLEN	/ Max length
-	JMS PUSH
+	PUSH
 	DCA INOFF	/ Zero input offset
 	JMS ACCEPT
 
 	TAD I SP
 	DCA LINLEN	/ Actual length
-	ISZ SP
+	POP
 
 	/ Get the next word but check end of line.
 NEXTW$:	TAD INOFF
@@ -254,7 +266,7 @@ NEXTW$:	TAD INOFF
 	// words that start with a digit.
 	JMS FIND	/ caddr 0 | xt 1 | xt -1
 	TAD I SP
-	ISZ SP		/ Execution token is at TOS
+	POP		/ Execution token is at TOS
 	SNA		/ Found it?
 	JMP NUMCK$	/ Undefined word or it is a number
 	CLA
@@ -272,7 +284,7 @@ COMP$:	CLA		/ Compile it
 	SPA
 	JMP IMM$	/ It is immediate
 	CLA
-	ISZ SP
+	POP
 	TAD T1		/ Lay down the xt
 	JMS LAYDN	/ Add to current definition
 	JMP NEXTW$
@@ -280,7 +292,7 @@ IMM$:	CLA		/ Execute now
 	JMS DOEXEC
 	JMP NEXTW$
 
-PREND$:	ISZ SP
+PREND$:	POP
 END$:	CLA
 	TAD STATE	/ All done, display prompt.
 	SZA
@@ -308,7 +320,7 @@ NUMCK$:	TAD WRDPTR
 	JMS LAYLIT
 	XLIT
 	TAD I SP
-	ISZ SP
+	POP
 	JMS LAYDN
 	JMP NEXTW$
 
@@ -335,7 +347,7 @@ TTOUT,	0
 
 EMIT,	0		/ Output char on stack
 	TAD I SP
-	ISZ SP
+	POP
 	JMS TTOUT
 	JMP I EMIT
 
@@ -350,7 +362,7 @@ CRLF,	0		/ End output line
 	.EXTERNAL GET
 KEY,	0		/ Wait for a key ( -- ch )
 	JMS GET
-	JMS PUSH	/ Put it on the stack
+	PUSH	/ Put it on the stack
 	TAD I SP	/ Type it too
 	JMS TTOUT
 	JMP I KEY
@@ -361,15 +373,16 @@ KEY,	0		/ Wait for a key ( -- ch )
 ACCEPT,	0
 	TAD I SP	/ Save buffer size
 	DCA INLEN$
-	ISZ SP
+	POP
 	TAD I SP	/ Buffer address
 	DCA INBUF$
+	POP
 	.INPUT
 INBUF$:	0		/ buf
 INLEN$:	0		/ len
 	/ Get length from MQ
 	CLA MQA
-	JMS PUSH
+	PUSH
 	JMP I ACCEPT
 
 	.SBTTL Output
@@ -378,9 +391,9 @@ INLEN$:	0		/ len
 TYPE,	0
 	TAD I SP	/ Get count as limit
 	DCA COUNT
-	ISZ SP
+	POP
 	TAD I SP
-	ISZ SP
+	POP
 	.PRINT	/?? Assume NUL terminator
 	DCA LIMIT
 
@@ -435,7 +448,7 @@ TO8,	0		/ Convert 6b to 8b
 COMP,	0		/ Subtract for comparison
 	TAD I SP
 	CIA
-	ISZ SP
+	POP
 	TAD I SP
 	CLL
 	JMP I COMP
@@ -443,10 +456,10 @@ COMP,	0		/ Subtract for comparison
 WITHIN,	0		/ ( v lo hi -- flag )
 	TAD I SP
 	DCA LIMIT	/ Upper limit
-	ISZ SP
+	POP
 	TAD I SP
 	DCA COUNT	/ Lower limit
-	ISZ SP
+	POP
 	TAD I SP
 	DCA T1		/ Test value
 	TAD COUNT	/ Check lower limit
@@ -551,7 +564,7 @@ LESSZ,	0		/ True if n < 0
 
 ANDOP,	0		/ Bitwise AND
 	TAD I SP
-	ISZ SP
+	POP
 	AND I SP
 	DCA I SP
 	JMP I ANDOP
@@ -560,7 +573,7 @@ OROP,	0		/ Bitwise OR by De'Morgan's law
 	TAD I SP
 	CMA
 	DCA T1
-	ISZ SP
+	POP
 	TAD I SP
 	CMA
 	AND T1
@@ -571,26 +584,27 @@ OROP,	0		/ Bitwise OR by De'Morgan's law
 PAD,	0		/ Dynamic work area above HERE
 	TAD HERE
 	TAD PADSPC
-	JMS PUSH
+	PUSH
 	JMP I PAD
 
 DIVMOD,	0		/ Divide with remainder
 	TAD I SP
 	DCA MODBY$
-	ISZ SP
+	POP
 	TAD I SP
 	MQL DVI
 MODBY$:	0
 	DCA I SP	/ Remainder is in AC
 	MQA
-	JMS PUSH	/ Quotient was in MQ
+	PUSH	/ Quotient was in MQ
 	JMP I DIVMOD
 
 	.SBTTL Literals
 
 // Compile a literal string inline.  This is a simpler
 // version of WORD.
-NEGQ,	200-""		/ Terminating quote
+   .ENABLE 7BIT
+NEGQ,	-""		/ Terminating quote
 LITSTR,	0
 	TAD HERE
 	DCA T1		/ Remember where length goes
@@ -599,7 +613,7 @@ LITSTR,	0
 LOOP$:	JMS NXTIN
 	TAD I SP
 	DCA CHAR
-	ISZ SP
+	POP
 	TAD CHAR	/ Check for terminating quote
 	TAD NEGQ
 	SNA CLA
@@ -617,9 +631,9 @@ XLITS,	0		/ Runtime for string addr+len
 	DCA COUNT
 	ISZ IP
 	TAD IP
-	JMS PUSH	/ Push address of first char
+	PUSH	/ Push address of first char
 	TAD COUNT
-	JMS PUSH	/ Push length
+	PUSH	/ Push length
 	JMP I XLITS
 
 GENOP,	0		/ Lay down a literal at runtime
@@ -656,9 +670,9 @@ QUOTS,	0		/ Run time for literal strings ( -- addr len )
 	JMS SKPIP	/ Advance IP over the string
 	JMP I QUOTS
 
-DQUOT,	0		/ Compile time for ."
+DQUOT,	0		/ Compile ." as S" and TYPE
 	JMS LAYLIT
-	XSTR	/ Op to make addr,len
+	XTYPES		/ Op to make addr,len
 	JMS LITSTR	/ Put the string inline
 	JMS LAYLIT
 	XTYPE
@@ -677,7 +691,7 @@ HALT,	0
 
 DOEXEC,	0		/ ( xt -- )
 	TAD I SP	/ Get dictionary header
-	ISZ SP
+	POP
 	DCA CURENT
 
 	JMS TRACE
@@ -717,18 +731,18 @@ SET8,	0		/ Runtime for OCTAL
 	
 SYSVAR,	0		/ runtime for System variables
 	TAD DPTR
-	JMS PUSH
+	PUSH
 	JMP I SYSVAR
 
 DOCON,	0		/ runtime for CONSTANT
 	TAD I DPTR
-	JMS PUSH
+	PUSH
 	JMP I DOCON
 
 GENCON,	0		/ Define a CONSTANT
 	JMS CREATE
 	TAD I SP	/ Get the value
-	ISZ SP
+	POP
 	JMS LAYDN
 	TAD (DOCON	/ Set CONSTANT action
 	DCA I CPTR
@@ -737,7 +751,7 @@ GENCON,	0		/ Define a CONSTANT
 GENVAR,	0		/ Define a VARIABLE
 	JMS CREATE
 	TAD I SP
-	ISZ SP
+	POP
 	JMS LAYDN
 	TAD (DOVAR	/ SeVARIABLE action
 	DCA I CPTR
@@ -745,7 +759,7 @@ GENVAR,	0		/ Define a VARIABLE
 
 DOVAR,	0
 	TAD DPTR	/ Get the value address
-	JMS PUSH
+	PUSH
 	JMP I DOVAR
 
 SYSCON,	0		/ runtime for System constants
@@ -754,12 +768,12 @@ SYSCON,	0		/ runtime for System constants
 	CDF .
 	TAD I T1
 	CDF DCTEND	/ Field One back on
-	JMS PUSH
+	PUSH
 	JMP I SYSCON
 
 ISLIT,	0     / Push a literal from dictionary
 	TAD I DPTR
-	JMS PUSH
+	PUSH
 	JMP I SYSCON
 
 	PAGE
@@ -873,11 +887,11 @@ CVTFIL,	0
 	TAD I SP	/ Length on stack
 	CIA
 	DCA LIMIT
-	ISZ SP
+	POP
 	CLA CMA
 	TAD I SP	/ Start of string
 	DCA TEXT1
-	ISZ SP
+	POP
 	TAD SEEK6	/ Use the dictionary buffer
 	JMS A6INIT
 	TAD (-6		/ Output limit
@@ -905,15 +919,15 @@ FDONE$:	JMS A6EXT	/ Pad the extension
 TOFILE,	0		/ ( addr len buf -- )
 	TAD I SP
 	JMS A6INIT	/ Set destination
-	ISZ SP
+	POP
 	TAD I SP
 	CIA
 	DCA LIMIT	/ Set count
-	ISZ SP
+	POP
 	CLA CMA
 	TAD I SP
 	DCA TEXT1	/ Set source-1
-	ISZ SP
+	POP
 COPY$:	TAD I TEXT1
 	JMS A6ADD
 	ISZ LIMIT
@@ -932,7 +946,7 @@ SETFLD,	0
 	CLL RTL; RAL
 	TAD (CDF
 	DCA CHANGE+1
-	ISZ SP
+	POP
 	TAD I SP	/ Get address
 	DCA T1
 	JMP I SETFLD
@@ -951,12 +965,12 @@ FFETCH,	0		/ ( addr fld -- n )
 
 FSTORE,	0		/ ( n addr fld -- )
 	JMS SETFLD
-	ISZ SP
+	POP
 	TAD I SP	/ The value
 	JMS CHANGE
 	DCA I T1	/ Far Store
 	CDF DCTEND
-	ISZ SP
+	POP
 	JMP I FSTORE
 
 	PAGE
@@ -978,9 +992,9 @@ FETCH,	0		/ ( addr -- n )
 STORE,	0		/ ( n addr -- )
 	TAD I SP	/GET ADDRESS
 	DCA TOS
-	ISZ SP
+	POP
 	TAD I SP	/GET VALUE
-	ISZ SP
+	POP
 	DCA T1
 	TAD TOS		/ Compare address with 0200
 	TAD LOMEM
@@ -996,11 +1010,11 @@ MOVE,	0		/ ( adr1 adr2 len -- )
 	TAD I SP	/ count
 	CIA
 	DCA LIMIT
-	ISZ SP
+	POP
 	CLA CMA		/ destination -1
 	TAD I SP
 	DCA TEXT2
-	ISZ SP
+	POP
 	CLA CMA		/ source -1
 	TAD I SP
 	DCA TEXT1
@@ -1017,13 +1031,13 @@ OVER,	0		/ ( a b -- a b a )
 	IAC
 	DCA T1
 	TAD I T1
-	JMS PUSH
+	PUSH
 	JMP I OVER
 
 PUSHR,	0		/ >R
 	TAD I SP
 	JMS PUSHRS
-	ISZ SP
+	POP
 	JMP I PUSHR
 
 POPR,	0		/ R>
@@ -1031,64 +1045,64 @@ POPR,	0		/ R>
 	DCA T1
 	ISZ RSP
 	TAD T1
-	JMS PUSH
+	PUSH
 	JMP I POPR
 
 RFET,	0		/ R@
 	TAD I RSP
-	JMS PUSH
+	PUSH
 	JMP I RFET
 
 RSTOR,	0
 	TAD I SP
 	DCA I RSP
-	ISZ SP
+	POP
 	JMP I RSTOR
 
 DEPTH,	0		/ Report stack depth
-	TAD SP
+	TAD SP		/ Subtract SP
 	CIA
-	TAD SBASE
+	TAD SBASE	/ from stack top
 	TAD SSIZE
-	JMS PUSH
+	PUSH
 	JMP I DEPTH
 
 ROTOP,	0		/ Rotate top 3 stack items
 	TAD I SP	/ Fetch top down
 	DCA T1
-	ISZ SP
+	POP
 	TAD I SP
 	DCA T2
-	ISZ SP
+	POP
 	TAD I SP
 	DCA TOS
 	TAD T2
 	DCA I SP
 	TAD T1
-	JMS PUSH
+	PUSH
 	TAD TOS
-	JMS PUSH	
+	PUSH	
 	JMP I ROTOP
 
 QDUP,	0		/ DUP if non-zero
 	TAD I SP
 	SNA
 	JMP I QDUP
-	JMS PUSH
+	PUSH
 	JMP I QDUP
 
 DUP,	0		/ ( n -- n n )
 	TAD I SP
-	JMS PUSH
+	PUSH
 	JMP I DUP
 
 DROP,	0
-	ISZ SP
+	POP
 	JMP I DROP
 
 DROP2,	0
-	ISZ SP
-	ISZ SP
+	POP
+	POP
 	JMP I DROP2
 
 SWAP,	0		/ ( n1 n2 -- n2 n1 )
@@ -1115,7 +1129,7 @@ NEGATE,	0		/ Invert a number
 TIMES,	0		/ (a b -- a*b )
 	TAD I SP
 	DCA MULT$
-	ISZ SP
+	POP
 	TAD I SP
 	MQL MUY
 MULT$:	0
@@ -1126,7 +1140,7 @@ MULT$:	0
 DIVIDE,	0		/ ( a b -- a/b )
 	TAD I SP
 	DCA DIVSR$
-	ISZ SP
+	POP
 	TAD I SP
 	MQL DVI
 DIVSR$:	0
@@ -1137,10 +1151,10 @@ DIVSR$:	0
 MULDIV,	0		/ ( a b c -- a*b/c )
 	TAD I SP
 	DCA MD2$
-	ISZ SP
+	POP
 	TAD I SP
 	DCA MD1$
-	ISZ SP
+	POP
 	TAD I SP
 	MQL
 	MUY
@@ -1160,7 +1174,7 @@ ONEP,	0		/ ( n -- n+1 )
 PLUS,	0		/ ( a b -- a+b )
 	TAD I SP
 	DCA T1
-	ISZ SP
+	POP
 	TAD T1
 	TAD I SP
 	DCA I SP
@@ -1169,7 +1183,7 @@ PLUS,	0		/ ( a b -- a+b )
 MINUS,	0		/ ( a b -- a-b )
 	TAD I SP
 	CIA
-	ISZ SP
+	POP
 	TAD I SP
 	DCA I SP
 	JMP I MINUS
@@ -1184,14 +1198,14 @@ TICK,	0
 	TAD I SP
 	SNA
 	HLT
-	ISZ SP
+	POP
 	JMP I TICK
 
 	.SBTTL Number conversions
 DOT,	0		/ Print a numeric value
 	TAD I SP	/ Get the value
 	DCA T1
-	ISZ SP
+	POP
 	TAD BASE	/ Modify the divisor
 	DCA DIVSR$
 	DCA COUNT	/ Count the digits
@@ -1202,7 +1216,7 @@ LOOP$:	CLA
 	DVI		/ Remainder in AC
 DIVSR$:	12
 	TAD (60		/ Make it ASCII
-	JMS PUSH	/ Push it
+	PUSH	/ Push it
 	ISZ COUNT	/ Count it
 	MQA		/ Get Dividend
 	SNA
@@ -1224,7 +1238,7 @@ OUT$:	CLA		/ Digits are on the stack in reverse order
 /// Allocate space in the dictionary ( n -- )
 ALLOT,	0
 	TAD I SP
-	ISZ SP
+	POP
 	TAD HERE
 	DCA HERE
 	JMP I ALLOT
@@ -1275,7 +1289,7 @@ COPY$:	TAD I TEXT1	/ Lay down the name
 COMMA,	0		/ Add word to definition
 	TAD I SP
 	JMS LAYDN
-	ISZ SP
+	POP
 	JMP I COMMA
 
 /// Define a new word
@@ -1291,7 +1305,7 @@ AVAIL,	0		/ Get available memory
 	TAD HERE
 	CIA
 	TAD RBASE	/ Limit is bottom of R-stack
-	JMS PUSH
+	PUSH
 	JMP I AVAIL
 
 SEMI,	0		/ Finish compilation
@@ -1308,7 +1322,7 @@ MAKIMM,	0		/ Make recent word immediate
 	
 BL,	0		/ Push a space
 	TAD ASPACE
-	JMS PUSH
+	PUSH
 	JMP I BL
 
 	.SBTTL Parsing input
@@ -1323,7 +1337,7 @@ NXTIN,	0
 	DCA INPTR
 	ISZ INOFF	/ Advance over it
 	TAD I INPTR
-	JMS PUSH	/ Push char on stack
+	PUSH	/ Push char on stack
 	JMP I NXTIN
 
 // Parse one word up to a delimiter ( char -- caddr )
@@ -1352,7 +1366,7 @@ WORD,	0		/ Parse one word
 LOOP1$:	JMS NXTIN	/ Get next candidate
 	TAD I SP
 	DCA T1
-	ISZ SP		/ Dispose of char on stack
+	POP		/ Dispose of char on stack
 
 	JMS CLASS$
 	JMP LOOP1$	/ Skip leading delimiters
@@ -1362,7 +1376,7 @@ LOOP1$:	JMS NXTIN	/ Get next candidate
 LOOP2$:	JMS NXTIN	/ Get another
 	TAD I SP
 	DCA T1
-	ISZ SP
+	POP
 	JMS CLASS$
 	JMP END$	/ Stop at delimiter
 	JMP END$	/ or any control code
@@ -1405,14 +1419,14 @@ COUNTS,	0
 	IAC
 	DCA I SP	/ Save it back
 	TAD TOS
-	JMS PUSH	/ Push the length
+	PUSH	/ Push the length
 	JMP I COUNTS
 	PAGE
 	.SBTTL Flow control
 
 MARKFU,	0		/ Record a fixup location
 	TAD HERE
-	JMS PUSH
+	PUSH
 	JMS LAYLIT
 	0
 	JMP I MARKFU
@@ -1425,7 +1439,7 @@ GENIF,	0
 
 FIXUP,	0		/ Fixup a previous jump
 	TAD I SP	/ Get place needing fixup
-	ISZ SP
+	POP
 	DCA T1
 	TAD T1	/ Compute difference
 	CIA
@@ -1453,7 +1467,7 @@ JUMP,	0		/ Adjust IP by a signed constant
 
 JUMPT,	0		/ Adjust IP if TOS true
 	TAD I SP
-	ISZ SP
+	POP
 	SZA
 	JMP YES$
 	ISZ IP		/ False so skip the adjustment
@@ -1466,7 +1480,7 @@ YES$:	CLA		/ True so do the adjustment
 
 JUMPF,	0		/ Adjust IP if TOS false
 	TAD I SP
-	ISZ SP
+	POP
 	SNA
 	JMP YES$
 	ISZ IP		/ True so skip the adjustment
@@ -1481,7 +1495,7 @@ YES$:	CLA		/ false so do the adjustment
 
 LITNUM,	0	  / Runtime for a literal number
 	TAD I IP
-	JMS PUSH
+	PUSH
 	ISZ IP
 	JMP I LITNUM
 
@@ -1513,7 +1527,7 @@ LOOP$:	TAD I TEXT1
 	ISZ LIMIT
 	JMP LOOP$	/ Get next digit
 DONE$:	TAD TOS
-	JMS PUSH	/ All done push final value
+	PUSH	/ All done push final value
 	JMP I NUMLO
 
 	PAGE
@@ -1537,12 +1551,12 @@ GETNUM,	0		/ ( dinit caddr len -- dval caddr remain )
 	TAD COUNT
 	CIA
 	DCA LIMIT	/ Save limit count
-	ISZ SP
+	POP
 	CMA
 	TAD I SP
 	DCA TEXT1	/ Save input pointer
-	ISZ SP
-	ISZ SP		/ Ignore high word
+	POP
+	POP		/ Ignore high word
 	TAD I SP
 	DCA TOS		/ Save starting value
 LOOP$:	TAD I TEXT1	/ Examine next char
@@ -1564,15 +1578,15 @@ LOOP$:	TAD I TEXT1	/ Examine next char
 	ISZ LIMIT
 	JMP LOOP$	/ Get next digit
 	TAD TOS
-	JMS PUSH	/ All done push final value
+	PUSH	/ All done push final value
 	CLA
-	JMS PUSH	/ Push high word
+	PUSH	/ Push high word
 	TAD TEXT1
 	IAC
-	JMS PUSH	/ Push last pointer
+	PUSH	/ Push last pointer
 	TAD COUNT
 	TAD LIMIT
-	JMS PUSH	/ Push remaining count
+	PUSH	/ Push remaining count
 	JMP I GETNUM
 
 BADNM$:	JMS UNDEF
@@ -1591,9 +1605,9 @@ UNDEF,	0
 
 PSEEK,	0		/ Print the sought-after word
 	TAD WRDPTR
-	JMS PUSH
+	PUSH
 	TAD I WRDPTR
-	JMS PUSH
+	PUSH
 	JMS TYPE
 	JMP I PSEEK
 
@@ -1616,7 +1630,7 @@ NOT$:	CLA
 	
 LPIDX,	0		/ Value of inner loop variable
 	TAD I RSP
-	JMS PUSH
+	PUSH
 	JMP I LPIDX
 
 LPEND,	0
@@ -1625,29 +1639,30 @@ LPEND,	0
 
 SWITCH,	0		/ Read the console switches
 	OSR
-	JMS PUSH
+	PUSH
 	JMP I SWITCH
 
-	// Print contents of the stack
-STKSIZ,	0
+// Print contents of the stack, top down.
 DOTS,	0
-	// 		/ Calulate how many words
-	JMS DEPTH
+	JMS DEPTH	/ Calulate how many words
 	TAD I SP
+	POP
+	SPA SNA
+	JMP I DOTS	/ Do nothing if empty.
 	CIA
-	DCA STKSIZ	/ Should be negative count
-	ISZ SP
+	DCA LIMIT$	/ Should be negative count
 	TAD SP
 	DCA T2
 LOOP$:	JMS SPACE
 	TAD I T2
-	JMS PUSH
+	PUSH
 	JMS DOT
 	ISZ T2
-	ISZ STKSIZ
+	ISZ LIMIT$
 	JMP LOOP$
 	JMS CRLF
 	JMP I DOTS
+LIMIT$:	0
 
 SPACE,	0		/ Type a space
 	CLA
@@ -1759,12 +1774,12 @@ SUB$:	TAD I TEXT3	/ Subtract one from the other
 	JMP MORE$	/ Try next pair of chars
 
 	TAD THIS	/ Found goal.  Put it on stack
-	JMS PUSH
+	PUSH
 	TAD I THIS	/ Check IMM flag in sign bit
 	SPA
 	JMP IMM$
 	CLA IAC
-FDONE$:	JMS PUSH	/ And the +1 success flag
+FDONE$:	PUSH	/ And the +1 success flag
 	JMP I FIND
 
 IMM$:	CLA CMA		/ Return -1 flag for IMMEDIATE
@@ -1781,7 +1796,7 @@ NEXT$:	ISZ THIS	/ Advance THIS to link word
 	SZA
 	JMP FNEXT$	/ Try next candidate
 	CLA
-	JMS PUSH	/ End of chain, return failure
+	PUSH	/ End of chain, return failure
 	JMP I FIND
 
 FNEXT$:	DCA THIS
@@ -1792,7 +1807,7 @@ PAKNAM,	0
 	CLA CMA		/ Minus 1
 	TAD I SP	/ Address of counted ASCII
 	DCA TEXT1
-	ISZ SP
+	POP
 	TAD I TEXT1	/ Input count ( 1+ )
 	DCA COUNT
 
@@ -1831,7 +1846,8 @@ FILRD,	0	/ Open text from a file
 FILRDL,	0	/ Read a line from a file
 	JMP I FILOPN
 
-// Reserved area for disk device handler in F0
+// Reserved area for disk device handler in F0.
+// OS/8 reeserved area starts at 7600.
 	.ASECT RKPARK
 	FIELD 0
 	.GLOBAL RKSPOT
@@ -1862,7 +1878,7 @@ NAME6,	ZBLOCK 10	/ Sought word here in SIXBIT
 // looking for.
 	.DISABLE FILL
 	.ENABLE SIXBIT
-	.NOLIST
+/	.NOLIST
 	B=0
 	TEXT "OPEN-FILE_"; A=.; 5; B; FILOPN
 	TEXT "CLOSE-FILE"; B=.; 5; A; FILCLS
@@ -1870,126 +1886,126 @@ NAME6,	ZBLOCK 10	/ Sought word here in SIXBIT
 	TEXT "READ-LINE_"; B=.; 5; A; FILRDL
 	TEXT "R/O_"; A=.; 2; B; ISLIT; 0
 	TEXT "R/W_"; B=.; 2; A; ISLIT; 1
-	TEXT \X@\; A=.; 1; B; FFETCH
-	TEXT \X!\; B=.; 1; A; FSTORE
-	TEXT \CONSTANT\; A=.; 4; B; GENCON
-	TEXT \VARIABLE\; B=.; 4; A; GENVAR
-	TEXT \(CON)_\;   A=.; 3; B; DOCON
-	TEXT \(VAR)_\;   B=.; 3; A; DOVAR
-	TEXT \=_\;	A=.; 1; B; EQL
-	TEXT \>_\;	XGTR=.; 1; A; GTR
-	TEXT \<_\;	A=.; 1; XGTR; LESS
-	TEXT \>=\;	XGEQ=.; 1; A; GEQL
-	TEXT \<=\;	XLEQL=.; 1; XGEQ; LEQL
-	TEXT \<>\;	B=.; 1; XLEQL; NEQL
-	TEXT \0=\;	A=.; 1; B; EQLZ
-	TEXT \0<\;	B=.; 1; A; LESSZ
-	TEXT \0>\;	A=.; 1; B; GTRZ
-	TEXT \0=\;	B=.; 1; A; EQLZ
+	TEXT "X@"; A=.; 1; B; FFETCH
+	TEXT "X!"; B=.; 1; A; FSTORE
+	TEXT "CONSTANT"; A=.; 4; B; GENCON
+	TEXT "VARIABLE"; B=.; 4; A; GENVAR
+	TEXT "(CON)_";   A=.; 3; B; DOCON
+	TEXT "(VAR)_";   B=.; 3; A; DOVAR
+	TEXT "=_";	A=.; 1; B; EQL
+	TEXT ">_";	XGTR=.; 1; A; GTR
+	TEXT "<_";	A=.; 1; XGTR; LESS
+	TEXT ">=";	XGEQ=.; 1; A; GEQL
+	TEXT "<=";	XLEQL=.; 1; XGEQ; LEQL
+	TEXT "<>";	B=.; 1; XLEQL; NEQL
+	TEXT "0=";	A=.; 1; B; EQLZ
+	TEXT "0<";	B=.; 1; A; LESSZ
+	TEXT "0>";	A=.; 1; B; GTRZ
+	TEXT "0=";	B=.; 1; A; EQLZ
 
-	TEXT \IF\;	XIF=.; 4001; B; GENIF
-	TEXT \ELSE\;	XELSE=.; 4002; XIF; GENELS
-	TEXT \THEN\;	XTHEN=.; 4002; XELSE; GENTHN
-	TEXT \>R\;	XTOR=.; 1; XTHEN; PUSHR
-	TEXT \R>\;	XPOPR=.; 1; XTOR; POPR
-	TEXT \R@\;	XFETR=.; 1; XPOPR; RFET
-	TEXT \R!\;	XRSTOR=.; 1; XFETR; RSTOR
-	TEXT \(JMP)_\; XJMP=.; 3; XRSTOR; JUMP
-	TEXT \(JMPT)\; XJMPT=.; 3; XJMP; JUMPT
-	TEXT \(JMPF)\; XJMPF=.; 3; XJMPT; JUMPF
-	TEXT \AGAIN_\; B=.; 6003; XJMPF; 0
+	TEXT "IF";	XIF=.; 4001; B; GENIF
+	TEXT "ELSE";	XELSE=.; 4002; XIF; GENELS
+	TEXT "THEN";	XTHEN=.; 4002; XELSE; GENTHN
+	TEXT ">R";	XTOR=.; 1; XTHEN; PUSHR
+	TEXT "R>";	XPOPR=.; 1; XTOR; POPR
+	TEXT "R@";	XFETR=.; 1; XPOPR; RFET
+	TEXT "R!";	XRSTOR=.; 1; XFETR; RSTOR
+	TEXT "(JMP)_"; XJMP=.; 3; XRSTOR; JUMP
+	TEXT "(JMPT)"; XJMPT=.; 3; XJMP; JUMPT
+	TEXT "(JMPF)"; XJMPF=.; 3; XJMPT; JUMPF
+	TEXT "AGAIN_"; B=.; 6003; XJMPF; 0
 	   XGENOP; XJMP;
 	   XHERE; XMINUS; XCOMA; 0
-	TEXT \*/\; A=.; 1; B; MULDIV
-	TEXT \[']_\;	B=.; 4002; A; TICK
-	TEXT \BEGIN_\;A=.; 6003; B; 0
+	TEXT "*/"; A=.; 1; B; MULDIV
+	TEXT "[']_";	B=.; 4002; A; TICK
+	TEXT "BEGIN_";A=.; 6003; B; 0
 	   XHERE; 0
-	TEXT \UNTIL_\; B=.; 6003; A; 0
+	TEXT "UNTIL_"; B=.; 6003; A; 0
 	   XGENOP; XJMPF; XHERE; XMINUS; XCOMA; 0
-	TEXT \DO\; A=.; 6001; B; 0
+	TEXT "DO"; A=.; 6001; B; 0
 	   XGENOP; XTOR;
 	   XHERE; 0
-	TEXT \LOOP\; B=.; 6002; A; 0
+	TEXT "LOOP"; B=.; 6002; A; 0
 	   XGENOP; XFETR; XGENOP; X1PLUS; XGENOP; XRSTOR
 	   XGENOP; XDUP;
 	   XGENOP; XFETR; XGENOP; XGEQ; XGENOP; XJMPT
 	   XHERE; XMINUS; XCOMA
 	   XGENOP; XPOPR; XGENOP; X2DROP; 0
-	TEXT \IMMEDIATE_\;A=.; 5; B; MAKIMM
-	TEXT \'_\;	B=.;	1; A; TICK
-	TEXT \DEPTH_\;	A=.;	3; B; DEPTH
-	TEXT \,_\;	XCOMA=.; 1; A; COMMA
-	TEXT \EMIT\;	B=.;	2; XCOMA; EMIT
-	TEXT \@_\;	A=.; 	1; B; FETCH
-	TEXT \C@\;	B=.; 	1; A; FETCH
-	TEXT \-_\;	XMINUS=.; 1; B; MINUS
-	TEXT \+_\;	XPLUS=.; 1; XMINUS; PLUS
-	TEXT \!_\;	A=.; 	1; XPLUS; STORE
-	TEXT \C!\;	B=.; 	1; A; STORE
-	TEXT \ABORT_\;A=.; 	3; B; ABORT
-	TEXT \FIND\;	B=.; 	2; A; FIND
-	TEXT \SWAP\;	XSWAP=.; 2; B; SWAP
-	TEXT \KEY_\;	B=.; 	2; XSWAP; KEY
-	TEXT \;_\;	A=.;	4001; B; SEMI
-	TEXT \BASE\;	B=.; 2; A; SYSVAR; BASE
-	TEXT \ACCEPT\;A=.; 3; B; ACCEPT
-	TEXT \CREATE\;A=.; 3; B; CREATE
-	TEXT \ALLOT_\;B=.; 3; A; ALLOT
-	TEXT \AND_\;	B=.;	2; A; ANDOP
-	TEXT \OR\;	A=.;	1; B; OROP
-	TEXT \ROT_\;	B=.;	2; A; ROTOP
-	TEXT \?DUP\;	A=.;	2; B; QDUP
-	TEXT \PAD_\;	B=.;	2; A; PAD
-	TEXT \/MOD\;	A=.;	2; B; DIVMOD
-	TEXT \I_\;	B=.; 1; A; LPIDX
-	TEXT \DONE\;	A=.; 2; B; LPEND
-	TEXT \CR\;  XCR=.; 1; A; CRLF
-	TEXT \TYPE\;	XTYPE=.; 2; XCR; TYPE
-	TEXT \BL\;	B=.; 1; XTYPE; SYSCON; ASPACE
-	TEXT \WITHIN\;A=.; 3; B; WITHIN
-	TEXT \DROP\;	XDROP=.; 2; A; DROP
-	TEXT \2DROP_\; X2DROP=.; 3; XDROP; DROP2
-	TEXT \DECIMAL_\; A=.; 4; X2DROP; SET10
-	TEXT \OCTAL_\; B=.; 3; A; SET8
+	TEXT "IMMEDIATE_";A=.; 5; B; MAKIMM
+	TEXT "'_";	B=.;	1; A; TICK
+	TEXT "DEPTH_";	A=.;	3; B; DEPTH
+	TEXT ",_";	XCOMA=.; 1; A; COMMA
+	TEXT "EMIT";	B=.;	2; XCOMA; EMIT
+	TEXT "@_";	A=.; 	1; B; FETCH
+	TEXT "C@";	B=.; 	1; A; FETCH
+	TEXT "-_";	XMINUS=.; 1; B; MINUS
+	TEXT "+_";	XPLUS=.; 1; XMINUS; PLUS
+	TEXT "!_";	A=.; 	1; XPLUS; STORE
+	TEXT "C!";	B=.; 	1; A; STORE
+	TEXT "ABORT_";A=.; 	3; B; ABORT
+	TEXT "FIND";	B=.; 	2; A; FIND
+	TEXT "SWAP";	XSWAP=.; 2; B; SWAP
+	TEXT "KEY_";	B=.; 	2; XSWAP; KEY
+	TEXT ";_";	A=.;	4001; B; SEMI
+	TEXT "BASE";	B=.; 2; A; SYSVAR; BASE
+	TEXT "ACCEPT";A=.; 3; B; ACCEPT
+	TEXT "CREATE";A=.; 3; B; CREATE
+	TEXT "ALLOT_";B=.; 3; A; ALLOT
+	TEXT "AND_";	B=.;	2; A; ANDOP
+	TEXT "OR";	A=.;	1; B; OROP
+	TEXT "ROT_";	B=.;	2; A; ROTOP
+	TEXT "?DUP";	A=.;	2; B; QDUP
+	TEXT "PAD_";	B=.;	2; A; PAD
+	TEXT "/MOD";	A=.;	2; B; DIVMOD
+	TEXT "I_";	B=.; 1; A; LPIDX
+	TEXT "DONE";	A=.; 2; B; LPEND
+	TEXT "CR";  XCR=.; 1; A; CRLF
+	TEXT "TYPE";	XTYPE=.; 2; XCR; TYPE
+	TEXT "BL";	B=.; 1; XTYPE; SYSCON; ASPACE
+	TEXT "WITHIN";A=.; 3; B; WITHIN
+	TEXT "DROP";	XDROP=.; 2; A; DROP
+	TEXT "2DROP_"; X2DROP=.; 3; XDROP; DROP2
+	TEXT "DECIMAL_"; A=.; 4; X2DROP; SET10
+	TEXT "OCTAL_"; B=.; 3; A; SET8
 // Terminal Buffers 80 chars each
-	TEXT \TIB_\;   A=.; 2; B; DOVAR
+	TEXT "TIB_";   A=.; 2; B; DOVAR
 	.GLOBAL TIB
 TIB,	*.+120
-	TEXT \TOB_\;	B=.; 2; A; DOVAR
+	TEXT "TOB_";	B=.; 2; A; DOVAR
 TOB,	*.+120
-	TEXT \WORDS_\;	A=.; 3; B; WORDS
-	TEXT \CELL\;	B=.; 2; A; IGNORE
-	TEXT \CELL+_\; A=.; 3; B; IGNORE
-	TEXT \(QS)\;	XSTR=.; 2; A; QUOTS / runtime "
-	TEXT \(DQS)_\;XTYPES=.; 3; XSTR; DQUOT / runtime ."
-	TEXT \C,\;	B=.; 1; XTYPES; COMMA
-	TEXT \(GEN)_\; XGENOP=.; 3; B; GENOP
-	TEXT \/_\;     B=.; 1; XGENOP; DIVIDE
-	TEXT \>NUMBER_\; A=.; 4; B; GETNUM
-	TEXT \MOVE\;	B=.; 2; A; MOVE
-	TEXT \CMOVE_\;	A=.; 3; B; MOVE
-	TEXT \OVER\;	B=.; 2; A; OVER
-	TEXT \._\;	A=.; 1; B; DOT
-	TEXT \AVAIL_\;	   B=.; 3; A; AVAIL
+	TEXT "WORDS_";	A=.; 3; B; WORDS
+	TEXT "CELL";	B=.; 2; A; IGNORE
+	TEXT "CELL+_";	A=.; 3; B; IGNORE
+	TEXT "(QS)";	XSTR=.; 2; A; QUOTS / runtime "
+	TEXT "(DQS)_";	XTYPES=.; 3; XSTR; RDQUOT / runtime ."
+	TEXT "C,";	B=.; 1; XTYPES; COMMA
+	TEXT "(GEN)_"; XGENOP=.; 3; B; GENOP
+	TEXT "/_";     B=.; 1; XGENOP; DIVIDE
+	TEXT ">NUMBER_"; A=.; 4; B; GETNUM
+	TEXT "MOVE";	B=.; 2; A; MOVE
+	TEXT "CMOVE_";	A=.; 3; B; MOVE
+	TEXT "OVER";	B=.; 2; A; OVER
+	TEXT "._";	A=.; 1; B; DOT
+	TEXT "AVAIL_";	   B=.; 3; A; AVAIL
 	TEXT ">IN_";	A=.; 2; B; SYSVAR; INOFF
 	TEXT "SWITCH";	B=.; 3; A; SWITCH
-	TEXT \NEGATE\;	A=.; 3; B; NEGATE
+	TEXT "NEGATE";	A=.; 3; B; NEGATE
 	TEXT \S"\;	B=.; 4001; A; SQUOT
 	TEXT \."\;	A=.; 4001; B; DQUOT
-	TEXT \SPACE_\;B=.; 3; A; SPACE
-	TEXT \.S\;	A=.; 1; B; DOTS
-	TEXT \STATE_\;B=.; 3; A; SYSVAR; STATE
-	TEXT \*_\;	A=.; 1; B; TIMES
-	TEXT \1+\;	X1PLUS=.; 1; A; ONEP
-	TEXT \COUNT_\;A=.; 3; X1PLUS; COUNTS
-	TEXT \:_\;	B=.; 1; A; COLON
-	TEXT \DUP_\;  XDUP=.; 2; B; DUP
-	TEXT \EXECUTE_\; XCUTE=.; 4; XDUP; DOEXEC
-	TEXT \(LIT)_\;XLIT=.; 3; XCUTE; LITNUM
-	TEXT \FILENAME\; XFILE=.; 4; XLIT; TOFILE
-	TEXT \HERE\; XHERE=.; 2; XFILE; SYSCON; HERE
+	TEXT "SPACE_";	B=.; 3; A; SPACE
+	TEXT ".S";	A=.; 1; B; DOTS
+	TEXT "STATE_";	B=.; 3; A; SYSVAR; STATE
+	TEXT "*_";	A=.; 1; B; TIMES
+	TEXT "1+";	X1PLUS=.; 1; A; ONEP
+	TEXT "COUNT_";	A=.; 3; X1PLUS; COUNTS
+	TEXT ":_";	B=.; 1; A; COLON
+	TEXT "DUP_";  	XDUP=.; 2; B; DUP
+	TEXT "EXECUTE_"; XCUTE=.; 4; XDUP; DOEXEC
+	TEXT "(LIT)_";	 XLIT=.; 3; XCUTE; LITNUM
+	TEXT "FILENAME"; XFILE=.; 4; XLIT; TOFILE
+	TEXT "HERE";	 XHERE=.; 2; XFILE; SYSCON; HERE
 // This must be the last entry.
-	TEXT \BYE_\; XBYE=.; 2; XHERE; BYE
+	TEXT "BYE_";	 XBYE=.; 2; XHERE; BYE
 	.LIST
 	/GLOBAL DCTEND
 DCTEND=.
