@@ -337,6 +337,34 @@ STACKS,	0		/ Initialize both stacks
 	DCA I RSP	/ Force zero as top opcode
 	JMP I STACKS
 
+TWODIV,	0     / Arithmetic shift right
+	TAD I SP
+	CLL
+	SPA
+	CML
+	RAR
+	DCA I SP
+	JMP I TWODIV
+
+MINUS1,	0     / Subtract one
+	CLA CMA
+	TAD I SP
+	DCA I SP
+	JMP I MINUS1
+
+INTNOW,	0     / Interpret inside definition
+	DCA STATE
+	JMP I INTNOW
+CMPNOW,	0     / Resume compiling
+	ISZ STATE
+	JMP I CMPNOW
+
+INVERT,	0
+	TAD I SP
+	CMA
+	DCA I SP
+	JMP I INVERT
+
 	.SBTTL Input
 
 	PAGE
@@ -390,12 +418,14 @@ INLEN$:	0		/ len
 // Print an ASCII string ( addr len -- )
 TYPE,	0
 	TAD I SP	/ Get count as limit
-	DCA COUNT
-	POP
-	TAD I SP
-	POP
-	.PRINT	/?? Assume NUL terminator
+	CIA
 	DCA LIMIT
+	POP
+	CLA CMA
+	TAD I SP
+	DCA TEXT1
+	POP
+	//.PRINT	/?? Assume NUL terminator
 
 LOOP$:	TAD I TEXT1	/ Advance and fetch
 	JMS TTOUT	/ Print one char
@@ -1201,7 +1231,36 @@ TICK,	0
 	POP
 	JMP I TICK
 
+/ Bitwise left shift   ( a b -- a<b )
+LSHIFT,	0
+	TAD I SP
+	CIA
+	DCA LIMIT
+	POP
+	TAD I SP
+LOOP$:	CLL
+	RAL
+	ISZ LIMIT
+	JMP LOOP$
+	PUSH
+	JMP I LSHIFT
+
+/ Bitwise right shift   ( a b -- a>b )
+RSHIFT,	0
+	TAD I SP
+	CIA
+	DCA LIMIT
+	POP
+	TAD I SP
+LOOP$:	CLL
+	RAR
+	ISZ LIMIT
+	JMP LOOP$
+	DCA I SP
+	JMP I RSHIFT
+
 	.SBTTL Number conversions
+	PAGE
 DOT,	0		/ Print a numeric value
 	TAD I SP	/ Get the value
 	DCA T1
@@ -1216,7 +1275,7 @@ LOOP$:	CLA
 	DVI		/ Remainder in AC
 DIVSR$:	12
 	TAD (60		/ Make it ASCII
-	PUSH	/ Push it
+	PUSH		/ Push it
 	ISZ COUNT	/ Count it
 	MQA		/ Get Dividend
 	SNA
@@ -1603,8 +1662,10 @@ UNDEF,	0
 	JMS CRLF
 	JMP I UNDEF
 
-PSEEK,	0		/ Print the sought-after word
+// Print the sought-after word
+PSEEK,	0
 	TAD WRDPTR
+	IAC
 	PUSH
 	TAD I WRDPTR
 	PUSH
@@ -1880,6 +1941,22 @@ NAME6,	ZBLOCK 10	/ Sought word here in SIXBIT
 	.ENABLE SIXBIT
 /	.NOLIST
 	B=0
+	TEXT "2/";	A=.; 1; B; TWODIV
+	TEXT "1-";	B=.; 1; A; MINUS1
+	TEXT "ALIGNED_";A=.; 4; B; IGNORE
+	TEXT "CHARS_";	B=.; 3; A; IGNORE
+	TEXT "[_";	A=.; 4001; B; INTNOW
+	TEXT "]_";	B=.; 1; A; CMPNOW
+	TEXT "INVERT";	A=.; 3; B; INVERT
+	TEXT "+LOOP_";	B=.; 6003; A; 0
+	 / R@ + R! DUP R@ >= JMPT (HERE -) R> 2DROP 
+	   XGENOP; XFETR; XGENOP; XPLUS; XGENOP; XRSTOR
+	   XGENOP; XDUP;
+	   XGENOP; XFETR; XGENOP; XGEQ; XGENOP; XJMPT
+	   XHERE; XMINUS; XCOMA
+	   XGENOP; XPOPR; XGENOP; X2DROP; 0
+	TEXT "LSHIFT";	A=.; 3; B; LSHIFT
+	TEXT "RSHIFT";	B=.; 3; A; RSHIFT
 	TEXT "OPEN-FILE_"; A=.; 5; B; FILOPN
 	TEXT "CLOSE-FILE"; B=.; 5; A; FILCLS
 	TEXT "READ-FILE_"; A=.; 5; B; FILRD
@@ -1926,6 +2003,7 @@ NAME6,	ZBLOCK 10	/ Sought word here in SIXBIT
 	   XGENOP; XTOR;
 	   XHERE; 0
 	TEXT "LOOP"; B=.; 6002; A; 0
+	 / R@ 1+ R! DUP R@ >= JMPT (HERE -) R> 2DROP 
 	   XGENOP; XFETR; XGENOP; X1PLUS; XGENOP; XRSTOR
 	   XGENOP; XDUP;
 	   XGENOP; XFETR; XGENOP; XGEQ; XGENOP; XJMPT
@@ -2007,5 +2085,6 @@ TOB,	*.+120
 // This must be the last entry.
 	TEXT "BYE_";	 XBYE=.; 2; XHERE; BYE
 	.LIST
-	/GLOBAL DCTEND
+	.GLOBAL DCTEND
 DCTEND=.
+
