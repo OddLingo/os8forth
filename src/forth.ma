@@ -147,6 +147,7 @@ INIT,	IOF		/ No interrupts
 	JMS CRLF
 	JMS MSG
 	TEXT \> \
+	JMS FILDEV
 	JMS QUIT
 	HLT	
 
@@ -1910,18 +1911,46 @@ LEN6$:	ISZ LIMIT
 	.SBTTL File operations
 
 	PAGE
+FILDEV,	0	/ Get device number in AC
+	CLA
+	CDF .
+	CIF 10
+	JMS I (7700)
+	12    / INQUIRE request
+INFO$:	DEVICE DSK
+	0
+	HLT
+	TAD INFO$+1
+	DCA FILINF+DEVNUM
+	TAD FILINF+DEVNUM	/ Now load handler
+	CDF .
+	CIF 10
+	JMS I (7700)
+	1     / FETCH request
+	RKSPOT
+	HLT
+	CDF DCTEND
+	JMP I FILDEV
+
+FILINF,	.FIB RKSPOT,,RKBUF1
+TMPNAM,	FILENAME TEST.TX
+
+	.LIST MEB,ME
 FILOPN,	0	/ Open a file named by string
-/	.IOPEN
+	CDF .
+	.IOPEN FILINF,TMPNAM
+	CDF DCTEND
+	PUSH
 	JMP I FILOPN
 
 FILCLS,	0	/ Open a file named by string
-	JMP I FILOPN
+	JMP I FILCLS
 
 FILRD,	0	/ Open text from a file
-	JMP I FILOPN
+	JMP I FILRD
 
 FILRDL,	0	/ Read a line from a file
-	JMP I FILOPN
+	JMP I FILRDL
 
 // Reserved area for disk device handler in F0.
 // OS/8 reeserved area starts at 7600.
@@ -1929,7 +1958,11 @@ FILRDL,	0	/ Read a line from a file
 	FIELD 0
 	.GLOBAL RKSPOT
 	*7400
-RKSPOT,	ZBLOCK 200
+RKSPOT,	0; *.+177
+
+	.DSECT BUFFS
+	FIELD 2
+RKBUF1,	0; *.+377
 
 	.SBTTL  Built-in word definitions
 
