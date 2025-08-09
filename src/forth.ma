@@ -5,7 +5,6 @@
 
 	.INCLUDE COMMON.MA
 
-	.EXTERNAL PUT, GET
 	.LIST
 
 / These are macros so that bounds checking can be
@@ -368,31 +367,40 @@ INVERT,	0
 	.SBTTL Input
 
 	PAGE
-TTOUT,	0
-	JMS PUT
-	CDF DCTEND
-	JMP I TTOUT
+	.ENTRY PUT
+PUT,	0
+	TLS			/Output char.
+	TSF			/Wait until ready.
+	JMP	.-1
+	CLA			/Clear AC.
+	JMP I PUT
 
 EMIT,	0		/ Output char on stack
 	TAD I SP
 	POP
-	JMS TTOUT
+	JMS PUT
 	JMP I EMIT
 
 CRLF,	0		/ End output line
 	CLA
 	TAD (15
-	JMS TTOUT
+	JMS PUT
 	TAD (12
-	JMS TTOUT
+	JMS PUT
 	JMP I CRLF
 
-	.EXTERNAL GET
+	.ENTRY GET
+GET,	0			/For return address.
+	KSF			/Wait for incoming char.
+	JMP	.-1
+	KRB			/Read char.
+	JMP I	GET		/Return.
+
 KEY,	0		/ Wait for a key ( -- ch )
 	JMS GET
 	PUSH	/ Put it on the stack
 	TAD I SP	/ Type it too
-	JMS TTOUT
+	JMS PUT
 	JMP I KEY
 
 	PAGE
@@ -428,7 +436,7 @@ TYPE,	0
 	//.PRINT	/?? Assume NUL terminator
 
 LOOP$:	TAD I TEXT1	/ Advance and fetch
-	JMS TTOUT	/ Print one char
+	JMS PUT	/ Print one char
 	ISZ LIMIT	/ Count down
 	JMP LOOP$	/ More to go
 	JMP I TYPE	/ Done
@@ -461,7 +469,7 @@ LEFT6,	0    	    	/ Get the left 6 bits
 P1SIX,	0		/ Print 6b char in AC
 	AND MASK6
 	JMS TO8
-	JMS TTOUT	/ Print the ASCII
+	JMS PUT	/ Print the ASCII
 	CLA
 	JMP I P1SIX
 
@@ -1658,7 +1666,7 @@ UNDEF,	0
 	TEXT \ ?UNDEF '\
 	JMS PSEEK
 	TAD ("'
-	JMS TTOUT
+	JMS PUT
 	JMS CRLF
 	JMP I UNDEF
 
@@ -1728,7 +1736,7 @@ LIMIT$:	0
 SPACE,	0		/ Type a space
 	CLA
 	TAD ASPACE
-	JMS TTOUT
+	JMS PUT
 	JMP I SPACE
 
 // Print name of current word if SR bit 0 is set.
