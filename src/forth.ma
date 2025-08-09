@@ -1750,16 +1750,21 @@ TRACE,	0
 
 	// Dump the entire dictionary
 WORDS,	0
-	TAD DICT
+	TAD DICT	/ Start here
 	DCA CURENT
-	TAD (-10
-	DCA LIMIT
+	TAD (-72
+	DCA THISW
 LOOP$:	JMS PNAME	/ Print this name
-	ISZ LIMIT
+	TAD COUNT	/ Add word length
+	IAC
+	TAD THISW
+	DCA THISW
+	TAD THISW	/ Past column 72?
+	SPA
 	JMP NEXT$
+	TAD (-72	/ Start new line
+	DCA THISW
 	JMS CRLF
-START$:	TAD (-10
-	DCA LIMIT
 	JMP BUMP$
 NEXT$:	JMS SPACE
 BUMP$:	ISZ CURENT	/ Find link word
@@ -1779,6 +1784,7 @@ PNAME,	0
 	AND LENMSK	/ Words in the name are limit
 	CIA
 	DCA LIMIT
+	DCA COUNT
 	TAD CURENT	/ Ptr is already one back
 	TAD LIMIT
 	DCA TEXT3
@@ -1786,6 +1792,7 @@ LOOP$:	TAD I TEXT3	/ Fetch word of two chars
 	DCA T1
 	TAD T1
 	JMS LEFT6	/ Look at left 6 bits
+	ISZ COUNT
 	JMS P1SIX
 	TAD T1		/ Now do right half
 	AND MASK6
@@ -1793,6 +1800,7 @@ LOOP$:	TAD I TEXT3	/ Fetch word of two chars
 	SNA
 	JMP I PNAME
 	TAD NAMPAD	/ Correct it
+	ISZ COUNT
 	JMS P1SIX
 	ISZ TEXT3
 	ISZ LIMIT	/ Count down
@@ -2057,8 +2065,6 @@ NAME6,	ZBLOCK 10	/ Sought word here in SIXBIT
 	TEXT "TIB_";   A=.; 2; B; DOVAR
 	.GLOBAL TIB
 TIB,	*.+120
-	TEXT "TOB_";	B=.; 2; A; DOVAR
-TOB,	*.+120
 	TEXT "WORDS_";	A=.; 3; B; WORDS
 	TEXT "CELL";	B=.; 2; A; IGNORE
 	TEXT "CELL+_";	A=.; 3; B; IGNORE
