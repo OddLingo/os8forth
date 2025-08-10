@@ -1921,8 +1921,8 @@ INFO$:	DEVICE DSK
 	0
 	HLT
 	TAD INFO$+1
-	DCA FILINF+DEVNUM
-	TAD FILINF+DEVNUM	/ Now load handler
+	DCA F1FIB+DEVNUM
+	TAD F1FIB+DEVNUM	/ Now load handler
 	CDF .
 	CIF 10
 	JMS I (7700)
@@ -1932,13 +1932,13 @@ INFO$:	DEVICE DSK
 	CDF DCTEND
 	JMP I FILDEV
 
-FILINF,	.FIB RKSPOT,,RKBUF1
+F1FIB,	.FIB RKSPOT,,RKBUF1
 TMPNAM,	FILENAME TEST.TX
 
 	.LIST MEB,ME
 FILOPN,	0	/ Open a file named by string
 	CDF .
-	.IOPEN FILINF,TMPNAM
+	.IOPEN F1FIB,TMPNAM
 	CDF DCTEND
 	PUSH
 	JMP I FILOPN
@@ -1946,7 +1946,8 @@ FILOPN,	0	/ Open a file named by string
 FILCLS,	0	/ Open a file named by string
 	JMP I FILCLS
 
-FILRD,	0	/ Open text from a file
+FILRD,	0	/ Read a block from the file
+	.GET	F1FIB
 	JMP I FILRD
 
 FILRDL,	0	/ Read a line from a file
