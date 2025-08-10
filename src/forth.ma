@@ -1954,7 +1954,20 @@ FILRD,	0	/ Read a block from the file
 	JMP I FILRD
 
 FILRDL,	0	/ Read a line from a file
+	TAD (TIB-1
+	DCA TEXT2
+LOOP$:	CDF .
+	.ICHAR	F1FIB
+	CDF DCTEND
+	AND MASK7
+	DCA CHAR
+	TAD CHAR
+	DCA I TEXT2
+	TAD (-15
+	TAD CHAR
+	SNA CLA
 	JMP I FILRDL
+	JMP LOOP$
 
 // Reserved area for disk device handler in F0.
 // OS/8 reeserved area starts at 7600.
@@ -1993,7 +2006,11 @@ NAME6,	ZBLOCK 10	/ Sought word here in SIXBIT
 	.DISABLE FILL
 	.ENABLE SIXBIT
 /	.NOLIST
-	B=0
+	A=0
+// Terminal Buffers 80 chars each
+	TEXT "TIB_";   B=.; 2; A; DOVAR
+	.GLOBAL TIB
+TIB,	*.+120
 	TEXT "2/";	A=.; 1; B; TWODIV
 	TEXT "1-";	B=.; 1; A; MINUS1
 	TEXT "ALIGNED_";A=.; 4; B; IGNORE
@@ -2098,10 +2115,6 @@ NAME6,	ZBLOCK 10	/ Sought word here in SIXBIT
 	TEXT "2DROP_"; X2DROP=.; 3; XDROP; DROP2
 	TEXT "DECIMAL_"; A=.; 4; X2DROP; SET10
 	TEXT "OCTAL_"; B=.; 3; A; SET8
-// Terminal Buffers 80 chars each
-	TEXT "TIB_";   A=.; 2; B; DOVAR
-	.GLOBAL TIB
-TIB,	*.+120
 	TEXT "WORDS_";	A=.; 3; B; WORDS
 	TEXT "CELL";	B=.; 2; A; IGNORE
 	TEXT "CELL+_";	A=.; 3; B; IGNORE
