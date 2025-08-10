@@ -1927,8 +1927,10 @@ INFO$:	DEVICE DSK
 	CIF 10
 	JMS I (7700)
 	1     / FETCH request
-	RKSPOT
+ARG1$:	RKSPOT
 	HLT
+	TAD ARG1$		/ Get entry point
+	DCA F1FIB+DEVADR
 	CDF DCTEND
 	JMP I FILDEV
 
@@ -1947,6 +1949,7 @@ FILCLS,	0	/ Open a file named by string
 	JMP I FILCLS
 
 FILRD,	0	/ Read a block from the file
+	CDF .
 	.GET	F1FIB
 	JMP I FILRD
 
@@ -2135,4 +2138,3 @@ TIB,	*.+120
 	.LIST
 	.GLOBAL DCTEND
 DCTEND=.
-
