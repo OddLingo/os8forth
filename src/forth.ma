@@ -16,18 +16,20 @@
 	ISZ SP
 	.ENDM
 
-/ All machine code is in Field zero so IF register never
-/ changes. The dictionary and all interpreted code and
-/ stacks are in Field 1.
+/ All machine code is in Field zero so IF register
+/ rarely changes. The dictionary and all interpreted
+/ code and stacks are in Field 1.  Field 2 has
+/ disk I/O routines.
 
 / Field 0:
-/   07200-07577 Console I/O handler (large)
+/   00000-07377 Interpreter
+/   07400-07577 Disk handler
 /   07600-07777 OS/8 Fixed
 / Field 1:
-/   10000-11777 OS/8 User Service Routines
-/   12000-17177 Forth dictionary
+/   10000-17177 Forth dictionary
 /   17200-17377 Data stack
 /   17400-17577 Return stack
+/   17600-17777 OS/8 Fixed
 / Field 2
 /   20000-20177 Console input buffer
 /   20200-00577 File system input block buffer
@@ -45,17 +47,16 @@ TEXT2,	0
 SP,	0	/ Data stack pointer
 RSP,	0	/ Return stack pointer
 IP,	0	/ Next instruction pointer
-SOURCE,	0	/ Where interpreter reads from
 
-BASE,	12		/ Number conversion base
-HERE,	DCTEND		/ Start of free memory
-DICT,	XBYE		/ Start of dictionary chain
-STATE,	0		/ Compiling
+BASE,	12	/ Number conversion base
+HERE,	DCTEND	/ Start of free memory
+DICT,	XBYE	/ Start of dictionary chain
+STATE,	0	/ Compiling
+SOURCE,	0	/ Where interpreter reads from
 
 /// Temporary values
 TEXT3,	0	/ Non-autoinc pointers
 TEXT4,	0
-LSTKEY,	0	/ Latest input key
 NEWORD,	0	/ Word being built
 COUNT,	0	/ Counting up from zero
 LIMIT,	0	/ Size of a buffer, up to zero
@@ -63,10 +64,8 @@ TOS,	0	/top of stack value
 T1,	0
 T2,	0
 DPTR,	0	/address of current dictionary word
-SEEK6,	NAME6	/ Address of sought word
 CPTR,	0	/ Address of code pointer
 CHAR,	0	/ latest character read
-TOGGLE,	0
 CURENT,	0	/ Current executing word
 PADSPC,	20	/ Distance PAD is above HERE
 THISW,	0
@@ -77,7 +76,7 @@ INOFF,	0	/ >IN offset in characters from the
 LINLEN,	0	/ # of characters in TIB
 
 /// Shared constants
-LENMSK,	17	/ Length mask in dicitonary header
+LENMSK,	17	/ Length mask in dictonary header
 IMMFLG,	4000	/ Flag to execute during compilation
 FTHFLG,	2000	/ Flag for interpreted code
 
@@ -95,16 +94,15 @@ MASK6,	0077	/ Sixbit mask
 MASK7,	0177	/ TTI parity mask
 NAMPAD,	0037	/ Padding for names
 WRDPTR,	WRDBUF
-TTOPTR,	0	/ Console output buffer
-TTLIM,	0
+SEEK6,	NAME6	/ Address of sought word
 TIBPTR,	TIB	/ Console input buffer
 TIBLEN,	0120	/ 80 characters max per line
 
 // Short routines used in many places.
-TOSTMP,	0		/ Push AC on the data stack
+TOSTMP,	0	/ Push AC on the data stack
 PUSHS,	0
 	DCA TOSTMP
-	CLA CMA		/ Minus 1
+	STA		/ Minus 1
 	TAD SP		/ plus the old SP
 	DCA SP		/ is the new SP
 	TAD TOSTMP
@@ -114,7 +112,7 @@ PUSHS,	0
 // Push AC on the return stack
 PUSHRS,	0
 	DCA TOSTMP
-	CLA CMA		/ Decrement RSP
+	STA		/ Decrement RSP
 	TAD RSP
 	DCA RSP
 	TAD TOSTMP	/ Put value there
@@ -139,7 +137,7 @@ INIT,	IOF		/ No interrupts
 	JMS STACKS	/ Init stacks
 	KCC		/ Clear device flags
 	TCF
-	CDF DCTEND	/ Indirect data references to field 1.
+	CDF DCTEND	/ Indirect references to F1
 	JMS AVAIL	/ Print available memory
 	JMS DOT
 	JMS MSG
@@ -147,7 +145,9 @@ INIT,	IOF		/ No interrupts
 	JMS CRLF
 	JMS MSG
 	TEXT \> \
-	JMS FILDEV
+	.EXTERNAL FHINIT
+	CIF FHINIT
+	JMS FHINIT
 	JMS QUIT
 	HLT	
 
@@ -199,7 +199,7 @@ LOOP$:	CLA
 	JMP LOOP$
 
 FORTH$:	TAD IP		/ Save old IP for later return
-	JMS PUSHRS	/ Go down a level on return stack
+	JMS PUSHRS	/ Go down a level on R-stack
 	TAD IP		/ Save old IP
 	TAD I CPTR	/ Set new IP
 	DCA IP
@@ -238,19 +238,18 @@ QUIT,	0
 	JMS STACKS	/ Initialize stacks
 	DCA STATE
 	DCA SOURCE	/ Console is input
-LINE$:	TAD TIBPTR	/ Read a line
+LLOOP$:	TAD TIBPTR	/ Read a line
 	PUSH
 	TAD TIBLEN	/ Max length
 	PUSH
 	DCA INOFF	/ Zero input offset
 	JMS ACCEPT
-
 	TAD I SP
 	DCA LINLEN	/ Actual length
 	POP
 
 	/ Get the next word but check end of line.
-NEXTW$:	TAD INOFF
+WLOOP$:	TAD INOFF
 	CIA
 	TAD LINLEN
 	SPA
@@ -275,7 +274,7 @@ NEXTW$:	TAD INOFF
 	JMP COMP$
 	//?? Error if IMMFLG set here
 	JMS DOEXEC	/ Execute word on stack now
-	JMP NEXTW$
+	JMP WLOOP$	/ Get another word
 
 COMP$:	CLA		/ Compile it
 	TAD I SP	/ Get address of dict entry
@@ -287,20 +286,21 @@ COMP$:	CLA		/ Compile it
 	POP
 	TAD T1		/ Lay down the xt
 	JMS LAYDN	/ Add to current definition
-	JMP NEXTW$
+	JMP WLOOP$	/ Get another word
+
 IMM$:	CLA		/ Execute now
 	JMS DOEXEC
-	JMP NEXTW$
+	JMP WLOOP$
 
 PREND$:	POP
 END$:	CLA
 	TAD STATE	/ All done, display prompt.
 	SZA
-	JMP LINE$
+	JMP LLOOP$	/ Get another line
 	JMS MSG
 	TEXT \ OK\
 	JMS CRLF
-	JMP LINE$
+	JMP LLOOP$	/ Get another line
 
 	// If first char is numeric, use NUMLO to
 	// convert it
@@ -314,7 +314,7 @@ NUMCK$:	TAD WRDPTR
 	JMS NUMLO	/ Use low-level number parser
 	TAD STATE	/ Compiling or interpreting?
 	SNA
-	JMP NEXTW$	/ Already on stack
+	JMP WLOOP$	/ Already on stack
 
 	/ Comple numeric literal now on stack
 	JMS LAYLIT
@@ -322,7 +322,7 @@ NUMCK$:	TAD WRDPTR
 	TAD I SP
 	POP
 	JMS LAYDN
-	JMP NEXTW$
+	JMP WLOOP$
 
 NUMER$:	JMS UNDEF	/ Don't know what
 	JMP END$
@@ -346,16 +346,17 @@ TWODIV,	0     / Arithmetic shift right
 	DCA I SP
 	JMP I TWODIV
 
-MINUS1,	0     / Subtract one
-	CLA CMA
+MINUS1,	0     / 1- Subtract one
+	STA
 	TAD I SP
 	DCA I SP
 	JMP I MINUS1
 
-INTNOW,	0     / Interpret inside definition
+INTNOW,	0     / [ Interpret inside definition
 	DCA STATE
 	JMP I INTNOW
-CMPNOW,	0     / Resume compiling
+
+CMPNOW,	0     / ] Resume compiling
 	ISZ STATE
 	JMP I CMPNOW
 
@@ -390,12 +391,14 @@ CRLF,	0		/ End output line
 	JMS PUT
 	JMP I CRLF
 
+// Get one character from the console.  The .INPUT
+// library also uses this.
 	.ENTRY GET
 GET,	0			/For return address.
 	KSF			/Wait for incoming char.
-	JMP	.-1
+	JMP .-1
 	KRB			/Read char.
-	JMP I	GET		/Return.
+	JMP I GET		/Return.
 
 KEY,	0		/ Wait for a key ( -- ch )
 	JMS GET
@@ -430,7 +433,7 @@ TYPE,	0
 	CIA
 	DCA LIMIT
 	POP
-	CLA CMA
+	STA
 	TAD I SP
 	DCA TEXT1
 	POP
@@ -453,7 +456,7 @@ LOOP$:	CDF .		/ We can indirect through MSG
 	JMP I MSG	/ Oops, zero so stop
 	DCA T1
 	TAD T1
-	JMS LEFT6
+	BSW
 	JMS P1SIX
 	TAD T1		/ Do right half
 	AND MASK6
@@ -461,11 +464,6 @@ LOOP$:	CDF .		/ We can indirect through MSG
 	JMP I MSG	/ Oops, zero
 	JMS P1SIX
 	JMP LOOP$
-
-LEFT6,	0    	    	/ Get the left 6 bits
-	RTR; RTR; RTR
-	AND MASK6
-	JMP I LEFT6
 
 P1SIX,	0		/ Print 6b char in AC
 	AND MASK6
@@ -512,7 +510,7 @@ WITHIN,	0		/ ( v lo hi -- flag )
 	TAD T1
 	SPA
 	JMP NOTIN$
-	CLA CMA		/ true FLAG IS -1
+	STA		/ true FLAG IS -1
 	SKP
 NOTIN$:	CLA		/ Return false flag
 	DCA I SP
@@ -851,7 +849,7 @@ A6ADD,	0		/ Add one character
 
 // Doing the left side so shift and store
 	TAD SIXCHR
-	CLL RTL;RTL;RTL	/ Move to left half
+	BSW		/ Move to left half
 	DCA I SIXOUT	/ Save to output
 	ISZ SIXLEN
 	ISZ SIXIDE	/ Set right flag
@@ -878,101 +876,7 @@ A6NAME,	0		/ Pad SIXBIT to a full word
 	JMS A6ADD
 	JMP I A6NAME
 
-A6FILE,	0		/ Pad SIXBIT to 6 characters
-	TAD (-6)
-A6PAD,	TAD SIXIN
-	DCA SIXCHR
-PAD0$:	JMS A6ADD
-	ISZ SIXCHR
-	JMP PAD0$
-	JMP I A6FILE
-
-A6EXT,	0		/ Pad SIXBIT to 2 characters
-	TAD .-1		/ Borrow A6FILE ending
-	DCA A6FILE
-	TAD (-2)
-	JMP A6PAD
-
-A6DEV,	0		/ Pad SIXBIT to 4 characters
-	TAD .-1		/ Borrow A6FILE ending
-	DCA A6FILE
-	TAD (-4)
-	JMP A6PAD
-
 	PAGE
-GETCH,	0		/ Get CH
-	TAD LIMIT
-	SNA
-	JMP I GETCH	/ Previously exhausted
-	ISZ LIMIT
-	JMP OK$
-	JMP I GETCH	/ Non-skip return
-OK$:	TAD I TEXT1	/ Skip return with ch
-	JMS A6ADD
-	JMS GETCH
-	JMP I GETCH
-
-PUTCH,	0		/ Convert ch limited by T1
-	ISZ T1
-	JMP OK$
-	JMP I PUTCH	/ Nonskip return when full
-OK$:	JMS A6ADD	/ Convert + skip return
-	ISZ PUTCH
-	JMP I PUTCH
-
-// Convert an ASCII string into a SIXBIT
-// filename for use by file operations.
-CVTFIL,	0
-	TAD I SP	/ Length on stack
-	CIA
-	DCA LIMIT
-	POP
-	CLA CMA
-	TAD I SP	/ Start of string
-	DCA TEXT1
-	POP
-	TAD SEEK6	/ Use the dictionary buffer
-	JMS A6INIT
-	TAD (-6		/ Output limit
-	DCA T1
-FLOOP$:	JMS GETCH	/ Copy filename part
-	JMP DOT$	/ End of input
-	DCA CHAR
-	TAD CHAR	/ Is it period?
-	TAD (-".)
-	SNA
-	JMP DOT$	/ Yes, do extension
-	TAD (".)
-	JMS PUTCH
-	JMP FLOOP$
-DOT$:	JMS A6FILE
-	TAD (-2		/ Now 2 char extension
-	DCA T1
-XLOOP$:	JMS GETCH	/ Copy extension
-	JMP FDONE$	/ End of input
-	JMS PUTCH
-	JMP XLOOP$
-FDONE$:	JMS A6EXT	/ Pad the extension
-	JMP I CVTFIL
-
-TOFILE,	0		/ ( addr len buf -- )
-	TAD I SP
-	JMS A6INIT	/ Set destination
-	POP
-	TAD I SP
-	CIA
-	DCA LIMIT	/ Set count
-	POP
-	CLA CMA
-	TAD I SP
-	DCA TEXT1	/ Set source-1
-	POP
-COPY$:	TAD I TEXT1
-	JMS A6ADD
-	ISZ LIMIT
-	JMP COPY$
-	JMS A6FILE
-	JMP I TOFILE
 
 IGNORE,	0		/ A non-operation
 	JMP I IGNORE
@@ -994,7 +898,8 @@ CHANGE,	0		/ Set programmed data field
 	0
 	JMP I CHANGE
 
-FFETCH,	0		/ ( addr fld -- n )
+// X@ Extended fetch ( addr fld -- n )
+FFETCH,	0
 	JMS SETFLD
 	JMS CHANGE
 	TAD I T1	/ Far fetch
@@ -1002,7 +907,8 @@ FFETCH,	0		/ ( addr fld -- n )
 	DCA I SP
 	JMP I FFETCH
 
-FSTORE,	0		/ ( n addr fld -- )
+// X! Extended store ( n addr fld -- )
+FSTORE,	0
 	JMS SETFLD
 	POP
 	TAD I SP	/ The value
@@ -1015,7 +921,8 @@ FSTORE,	0		/ ( n addr fld -- )
 	PAGE
 	.SBTTL Memory
 
-FETCH,	0		/ ( addr -- n )
+// @ Simple fetch ( addr -- n )
+FETCH,	0
 	TAD I SP	/Get the address
 	DCA TOS
 	TAD TOS		/ Compare with 0200
@@ -1028,7 +935,8 @@ FETCH,	0		/ ( addr -- n )
 	DCA I SP
 	JMP I FETCH
 
-STORE,	0		/ ( n addr -- )
+// ! Simple store ( n addr -- )
+STORE,	0
 	TAD I SP	/GET ADDRESS
 	DCA TOS
 	POP
@@ -1050,11 +958,11 @@ MOVE,	0		/ ( adr1 adr2 len -- )
 	CIA
 	DCA LIMIT
 	POP
-	CLA CMA		/ destination -1
+	STA		/ destination -1
 	TAD I SP
 	DCA TEXT2
 	POP
-	CLA CMA		/ source -1
+	STA		/ source -1
 	TAD I SP
 	DCA TEXT1
 LOOP$:	TAD I TEXT1
@@ -1423,7 +1331,7 @@ WORD,	0		/ Parse one word
 	TAD I SP
 	CIA
 	DCA CHAR	/ Save the negative delimiter
-	CLA CMA
+	STA
 	TAD WRDPTR	/ Set output pointer -1
 	DCA TEXT1
 	DCA I TEXT1	/ Stuff zero count
@@ -1708,7 +1616,7 @@ LPEND,	0
 	HLT	//??
 
 SWITCH,	0		/ Read the console switches
-	OSR
+	LAS
 	PUSH
 	JMP I SWITCH
 
@@ -1792,7 +1700,7 @@ PNAME,	0
 LOOP$:	TAD I TEXT3	/ Fetch word of two chars
 	DCA T1
 	TAD T1
-	JMS LEFT6	/ Look at left 6 bits
+	BSW		/ Look at left 6 bits
 	ISZ COUNT
 	JMS P1SIX
 	TAD T1		/ Now do right half
@@ -1860,7 +1768,7 @@ SUB$:	TAD I TEXT3	/ Subtract one from the other
 FDONE$:	PUSH	/ And the +1 success flag
 	JMP I FIND
 
-IMM$:	CLA CMA		/ Return -1 flag for IMMEDIATE
+IMM$:	STA		/ Return -1 flag for IMMEDIATE
 	JMP FDONE$
 
 MORE$:	ISZ TEXT3	/ Advance both pointers
@@ -1882,7 +1790,7 @@ FNEXT$:	DCA THIS
 
 // Pack counted string at TOS into NAME6 in SIXBIT
 PAKNAM,	0
-	CLA CMA		/ Minus 1
+	STA		/ Minus 1
 	TAD I SP	/ Address of counted ASCII
 	DCA TEXT1
 	POP
@@ -1910,76 +1818,123 @@ LEN6$:	ISZ LIMIT
 
 	.SBTTL File operations
 
-	PAGE
-FILDEV,	0	/ Get device number in AC
-	CLA
-	CDF .
-	CIF 10
-	JMS I (7700)
-	12    / INQUIRE request
-INFO$:	DEVICE DSK
-	0
-	HLT
-	TAD INFO$+1
-	DCA F1FIB+DEVNUM
-	TAD F1FIB+DEVNUM	/ Now load handler
-	CDF .
-	CIF 10
-	JMS I (7700)
-	1     / FETCH request
-ARG1$:	RKSPOT
-	HLT
-	TAD ARG1$		/ Get entry point
-	DCA F1FIB+DEVADR
-	CDF DCTEND
-	JMP I FILDEV
+// OPEN-FILE ( c-addr u fam -- fileid ior )
+// Open the file named in the character string specified by
+// c-addr u, with file access method indicated by fam. The
+// meaning of values of fam is implementation defined.
+// If the file is successfully opened, ior is zero, fileid
+// is its identifier, and the file has been positioned to
+// the start of the file.  Otherwise, ior is the
+// implementation-defined I/O result code and fileid is undefined.
 
-F1FIB,	.FIB RKSPOT,,RKBUF1
-TMPNAM,	FILENAME TEST.TX
-
-	.LIST MEB,ME
-FILOPN,	0	/ Open a file named by string
-	CDF .
-	.IOPEN F1FIB,TMPNAM
-	CDF DCTEND
+	.EXTERNAL SETFIB,FHOPEN,FHCLOS,FHRDL
+FILOPN,	0
+	TAD I SP
+	DCA T2
+	POP
+	TAD T2
+	/ Set File Information Block to use.
+	CIF 20; JMS SETFIB
+	JMS SETSTR  / Load MQ,C
+	CIF 20; JMS FHOPEN	/ Call OS8 interface
+	DCA T1		/ Save result
+	TAD T2		/ Fileid is direction
 	PUSH
+	TAD T2
+	PUSH		/ Result status
 	JMP I FILOPN
 
-FILCLS,	0	/ Open a file named by string
+SETSTR,	0	/ Describe a counted string
+	TAD I SP	/ Length into MQ
+	MQL
+	POP
+	TAD I SP	/ Address into AC
+	POP
+	JMP I SETSTR
+
+// CLOSE-FILE ( id -- status )
+FILCLS,	0
+	TAD I SP
+	CIF 20; JMS SETFIB
+	CIF 20; JMS FHCLOS
+	DCA I SP
 	JMP I FILCLS
 
+// READ-FILE ( c-addr u1 fileid -- u2 ior )
+// Read u1 consecutive characters to c-addr from the
+// current position of the file identified by fileid.
+// If u1 characters are read without an exception, ior
+// is zero and u2 is equal to u1.
+// If the end of the file is reached before u1 characters
+// are read, ior is zero and u2 is the number of characters
+// actually read.
 FILRD,	0	/ Read a block from the file
 	CDF .
-	.GET	F1FIB
 	JMP I FILRD
 
-FILRDL,	0	/ Read a line from a file
-	TAD (TIB-1
-	DCA TEXT2
-LOOP$:	CDF .
-	.ICHAR	F1FIB
+	PAGE
+/ READ-LINE ( c-addr u1 fileid -- u2 flag ior )
+/ Read the next line from the file specified by fileid
+/ into memory at the address c-addr. At most u1 characters
+/ are read. Up to two implementation-defined line-
+/ terminating characters may be read into memory at the end
+/ of the line, but are not included in the count u2.
+/ The line buffer provided by c-addr should be at least
+/ u1+2 characters long.  If the operation succeeded,
+/ flag is true and ior is zero. If a line terminator
+/ was received before u1 characters were read, then u2
+/ is the number of characters, not including the line
+/ terminator, actually read (0 <= u2 <= u1). When
+/ u1 = u2 the line terminator has yet to be reached. 
+FILRDL,	0
+	TAD I SP
+	CIF SETFIB
+	JMS SETFIB	/ Set Info Block
+	POP
+	TAD I SP
+	MQL	/ Max length in MQ
+	POP
+	TAD I SP	/ Address in AC
+	CDF FHRDL
+	JMS FHRDL
 	CDF DCTEND
-	AND MASK7
-	DCA CHAR
-	TAD CHAR
-	DCA I TEXT2
-	TAD (-15
-	TAD CHAR
-	SNA CLA
+	SPA		/ Positive AC is u2
+	JMP EOF$
+	DCA I SP
+	IAC
+	PUSH		/ TRUE flag
+	PUSH		/ ior zero
 	JMP I FILRDL
-	JMP LOOP$
+EOF$:	CLA
+	PUSH		/ FALSE flag
+	STA
+	PUSH		/ IOR -1
+	JMP I FILRDL
+
+FILWR,	0   / Write a block
+	JMP I FILWR
+
+	PAGE
+// WRITE-LINE ( addr len id -- st )
+	.EXTERNAL FHWRL
+FILWRL,	0   / Write a line
+	TAD I SP
+	CIF SETFIB
+	JMS SETFIB	/ Set Info Block
+	POP
+	JMS SETSTR	/ Load MQ,AC
+	JMS FHWRL
+	CIF .
+	PUSH		/ Status
+	JMP I FILWRL
 
 // Reserved area for disk device handler in F0.
-// OS/8 reeserved area starts at 7600.
+// OS/8 reserved area starts at 7600.
 	.ASECT RKPARK
 	FIELD 0
 	.GLOBAL RKSPOT
 	*7400
 RKSPOT,	0; *.+177
-
-	.DSECT BUFFS
-	FIELD 2
-RKBUF1,	0; *.+377
 
 	.SBTTL  Built-in word definitions
 
@@ -2031,6 +1986,8 @@ TIB,	*.+120
 	TEXT "CLOSE-FILE"; B=.; 5; A; FILCLS
 	TEXT "READ-FILE_"; A=.; 5; B; FILRD
 	TEXT "READ-LINE_"; B=.; 5; A; FILRDL
+	TEXT "WRITE-FILE"; A=.; 5; B; FILWR
+	TEXT "WRITE-LINE"; B=.; 5; A; FILWRL
 	TEXT "R/O_"; A=.; 2; B; ISLIT; 0
 	TEXT "R/W_"; B=.; 2; A; ISLIT; 1
 	TEXT "X@"; A=.; 1; B; FFETCH
@@ -2144,8 +2101,7 @@ TIB,	*.+120
 	TEXT "DUP_";  	XDUP=.; 2; B; DUP
 	TEXT "EXECUTE_"; XCUTE=.; 4; XDUP; DOEXEC
 	TEXT "(LIT)_";	 XLIT=.; 3; XCUTE; LITNUM
-	TEXT "FILENAME"; XFILE=.; 4; XLIT; TOFILE
-	TEXT "HERE";	 XHERE=.; 2; XFILE; SYSCON; HERE
+	TEXT "HERE";	 XHERE=.; 2; XLIT; SYSCON; HERE
 // This must be the last entry.
 	TEXT "BYE_";	 XBYE=.; 2; XHERE; BYE
 	.LIST

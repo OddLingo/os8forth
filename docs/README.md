@@ -1,5 +1,5 @@
 # FORTH for OS/8
-This is an interpreter/compiler for the FORTH language that runs under the OS/8 monitor on simulated (or real!) Digital Equipment Corporation PDP-8 computers.
+This is an interpreter/compiler for the FORTH language that runs under the OS/8 monitor on simulated (or real!) Digital Equipment Corporation PDP-8 computers.  By modern standards, the PDP-8 had extremely limited resources so do not expect a full-featured FORTH with multi-tasking, etc.  However, it can read and write text files.
 
 ## Minimum hardware and software
 * Extended Arithmetic Element (EAE)
@@ -18,16 +18,14 @@ This is an interpreter/compiler for the FORTH language that runs under the OS/8 
 * The CELL size is one 12-bit value
 * The 'character' words (C@, C!, C,) also operate on words
 * The Data and Return stacks have 128 words each.  There is no protection against under- or overflow.
+* Although it is is enticing to use all 32K words for the dictionary, this would require the use of double word addresses *everywhere* and since the FORTH environment is heavily built out of pointers, this would make the dictionary twice as big just to start, and the runtime engine code would be larger as well.  So the dictionary has to fit in 4096 words although the programmer can access the higher memory fields.
 
 ### Custom words
 The following FORTH words are extensions to the FORTH Standard to gain access to unique features of the PDP-8 hardware.
 
 * **X@** ( addr fnum -- n ) *Extended Fetch*, Fetches one word at the specified address in the specified memory field.  For example, `OCTAL 300 2 X@` will put the contents of location `20300` on the stack.  Field numbers must be in the range 0 to 7.
-* **X!** ( n addr fnum -- ) *Extended Store*, Stores n at the specified address in the specified field.  Modifying locations in fields 0 and 1 is not advised.
+* **X!** ( n addr fnum -- ) *Extended Store*, Stores n at the specified address in the specified field.  Modifying locations in all of field 0 and 1, and the lower half of field 2, is not advised.
 * **SWITCH** ( -- n ) puts the PDP-8 switch settings on the stack.
 
 ## Building
-The MACREL/LINK relocatable assembler and linker are used.
-
-       MAC FORTH.RB,FORTH.LS<FORTH.MA/Q/S/X=120
-       LINK FORTH.SV,FORTH.MP<FORTH.RB/K=3/9
+The MACREL/LINK relocatable assembler and linker are used.  A BATCH file FORTH.BI is provided that puts everything together.

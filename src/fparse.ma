@@ -1,5 +1,5 @@
 	.TITLE	FPARSE - Filename parser.
-	.VERSION 21
+	.VERSION 22
 	.ENABLE	7BIT
 / ++
 /	FPARSE Y2.1
@@ -8,219 +8,204 @@
 /
 /	History:
 /
-/	89/01/04 16:00	BQT	X1.0. Split from STRLIB.
-/	89/12/27 05:00	BQT	Y2.0. Made from PRSLIB.
-/	91/05/09 16:10	BQT	Y2.1. Removed default device.
-/
+/ 89/01/04 16:00 BQT X1.0. Split from STRLIB.
+/ 89/12/27 05:00 BQT Y2.0. Made from PRSLIB.
+/ 91/05/09 16:10 BQT Y2.1. Removed default device.
+/ 25/08/10 15:41 PAD V2.2. Adapt for FORTH
 / --
+	.ZSECT PRSCOM
+	FIELD 2
+	.GLOBAL SBDEV, SBFILE
+T0,	0			/Tmp
+T1,	0			/Tmp
+T2,	0			/Tmp.
+SRC,	0			/Source pointer.
+DEST,	0			/Destination address.
+COUNT,	0			/Loop count.
+TL,	0
+OFFSET,	0
+TEMP,	ZBLOCK	14		/Tmp storage for filename.
+SBDEV,	DEVICE DSK
+SBFILE,	FILENAME INIT.FH	/ Parsed filename
+
 	.RSECT	.FPARSE
+	FIELD 2
 /
 / FUNCTION: PARSE AN ASCII FILENAME INTO SIXBIT.
 /
 / USAGE:
-/	JMS	FPARSE
-/	SRCSTR				SOURCE STRING POINTER.
-/	DSTADR				DESTINATION ADDRESS.
-/
+/ Source address in AC.  SIXBIT output to SBDEV,SBFILE.
 	.ENTRY	$FPARSE
-$FPARSE,
-	0			/For return address.
-	CLA
-	TAD I	$FPARSE		/Get arg1.
-	ISZ	$FPARSE
-	DCA	SP		/Save as source pointer.
-	TAD I	$FPARSE		/Get arg2.
-	ISZ	$FPARSE
-	DCA	DA		/Save as dest. address.
-	RDF			/Get return field.
-	TAD	(CDF CIF)
-	DCA	R
-	RDF			/Get data field.
-	TAD	(CDF)
-	DCA	C2
-	CDF	.		/Change to current field.
-	TAD	C2
-	DCA	C1
+$FPARSE,0
+	DCA	SRC		/Save as source pointer.
+	TAD (SBDEV)
+	DCA	DEST		/Save as dest. address.
 
-	TAD	(ST)		/Get pointer to tmp storage.
+	/ Zero out the temporary storage.
+	TAD	(TEMP)		/Get pointer to tmp storage.
 	DCA	T2		/Save it.
 	TAD	(-14)		/Set loop to 14.
-	DCA	LC
+	DCA	COUNT
 1$:	DCA I	T2		/Clear tmp storage.
 	ISZ	T2		/Bump pointer.
-	ISZ	LC		/Bump count.
+	ISZ	COUNT		/Bump count.
 	JMP	1$		/Repeat.
 
-	JMS	GDEV		/Get device values.
+	JMS	GETDEV		/Get device values.
 	JMP	NODEV		/No device found.
-	TAD	(ST)		/Found. Set destination to tmp.
+	TAD	(TEMP)		/Found. Set destination to tmp.
 	DCA	T1
-	JMS	COPY		/Copy device.
+	JMS	COPY		/Copy device T0->T1
 	TAD	(-6)		/Total length is 6.
 	DCA	TL
-	TAD	(ST)		/Offset to start.
-	DCA	OFF
+	TAD	(TEMP)		/Offset to start.
+	DCA	OFFSET
 
-NAM,	JMS	GNAM		/Get file name.
+DONAME,	JMS	GETNAM		/Get file name.
 	JMP	EXT$		/No filename found. Pack result.
-	TAD	(ST+4)		/Found. Set destination to tmp.
+	TAD	(TEMP+4)	/Found. Set destination to tmp.
 	DCA	T1
-	JMS	COPY		/Copy filename.
+	JMS	COPY		/Copy filename T0->T1
 
-EXT$:	JMS	GEXT		/Get extension.
+EXT$:	JMS	GETEXT		/Get extension.
 	JMP	PACK$		/Not found. Pack result.
-	TAD	(ST+12)		/Found. Set destination to tmp.
+	TAD	(TEMP+12)	/Found. Set destination to tmp.
 	DCA	T1
-	JMS	COPY		/Copy.
+	JMS	COPY		/Copy extension T0->T1
 
+// Pack TEMP to DEST
 PACK$:	CLA
-	TAD	OFF		/Time to pack... Set source to tmp.
+	TAD	OFFSET		/Time to pack... Set source to tmp.
 	DCA	T2
 	TAD	TL		/Set count to 6 words.
-	DCA	LC
-LOOP,	TAD I	T2		/Get char.
-	ISZ	T2		/Bump pointer.
+	DCA	COUNT
+LOOP$:	TAD I	T2		/Get char.
+	ISZ	T2		/Bump source pointer.
 	AND	(77)		/Make SIXBIT.
 	BSW			/High char.
 	DCA	T1		/Save it temporarily.
 	TAD I	T2		/Get next char.
-	ISZ	T2		/Bump pointer.
+	ISZ	T2		/Bump source pointer.
 	AND	(77)		/Make SIXBIT.
-	TAD	T1		/Combine with 1:st char.
-C2,	HLT			/Change to data field.
-	DCA I	DA		/Save word.
-	ISZ	DA		/Bump pointer.
-	CDF	.		/Change to current field.
-	ISZ	LC		/Bump count.
-	JMP	LOOP		/Repeat.
-R,	HLT			/Return field.
+	TAD	T1		/Combine with first char.
+	DCA I	DEST		/Save word.
+	ISZ	DEST		/Bump destination pointer.
+	ISZ	COUNT		/Bump count.
+	JMP	LOOP$		/Repeat.
 	JMP I	$FPARSE		/Return.
-/
-GEXT,	0			/Get extension.
-	TAD	SP		/Get source pointer.
+
+GETEXT,	0			/Get extension.
+	TAD	SRC		/Get source pointer.
 	DCA	T0		/Save it in tmp.
-	JMS	GCHR		/Get char.
+	JMS	GETCHR		/Get char.
 	SNA CLA			/Was it NUL?
-	JMP I	GEXT		/Yes. No extension.
-	ISZ	SP		/No. Bump source pointer.
+	JMP I	GETEXT		/Yes. No extension.
+	ISZ	SRC		/No. Bump source pointer.
 	JMS	LOOK		/Search for NUL.
 	TAD	(-1)		/Decr. length of string.
 	SNA			/Empty string?
-	JMP I	GEXT		/Yes. No extension.
+	JMP I	GETEXT		/Yes. No extension.
 	TAD	(2)		/Limit length to 2.
 	SPA
 	CLA
 	TAD	(-2)
-	DCA	LC		/Save as loop count.
-	TAD	SP		/Get source pointer.
+	DCA	COUNT		/Save as loop count.
+	TAD	SRC		/Get source pointer.
 	DCA	T0		/Save as from tmp.
-	ISZ	GEXT		/Bump return.
-	JMP I	GEXT		/Return.
-/
-T2,	0			/Tmp.
-SP,	0			/Source pointer.
-DA,	0			/Destination address.
-LC,	0			/Loop count.
-TL,	0
-OFF,	0
-ST,	ZBLOCK	14		/Tmp storage for filename.
-/
+	ISZ	GETEXT		/Bump return.
+	JMP I	GETEXT		/Return.
+
 	PAGE
-/
+
+// Copy from T0 to T1
 COPY,	0			/Copy routine.
-1$:	JMS	GCHR		/Get char.
+1$:	JMS	GETCHR		/Get char.
 	TAD	(-140)		/Convert to uppercase...
 	SMA
 	TAD	(-40)
 	TAD	(140)
 	DCA I	T1		/Save it.
 	ISZ	T1		/Bump pointer.
-	ISZ	LC		/Bump count.
+	ISZ	COUNT		/Bump count.
 	JMP	1$		/Repeat.
 	JMP I	COPY		/Return.
 
-GCHR,	0			/Get char.
-C1,	HLT			/Change to data field.
+GETCHR,	0
 	TAD I	T0		/Get char.
 	ISZ	T0		/Bump pointer.
-	CDF	.FLD		/Change to current field.
-	JMP I	GCHR		/Return.
+	JMP I	GETCHR		/Return.
 
-GDEV,	0			/Get device.
+GETDEV,	0			/Get device.
 	TAD	(":)		/Search for device separator.
 	JMS	LOOK
 	TAD	(-1)		/Decr. string length.
 	SNA			/Only ":" found?
-	ISZ	SP		/Yes. Skip it. Use default device.
+	ISZ	SRC		/Yes. Skip it. Use default device.
 	SNA SPA			/Separator found and length>0?
-	JMP I	GDEV		/No. Dev not found. Return.
+	JMP I	GETDEV		/No. Dev not found. Return.
 	TAD	(-4)		/Limit length to 4.
 	SMA
 	CLA
 	TAD	(4)
 	CIA
-	DCA	LC		/Save as loop count.
-	TAD	SP		/Get source pointer.
+	DCA	COUNT		/Save as loop count.
+	TAD	SRC		/Get source pointer.
 	DCA	T1		/Save it tmp.
 	TAD	T0		/Get ptr to filename.
-	DCA	SP		/Save it as new source pointer.
+	DCA	SRC		/Save it as new source pointer.
 	TAD	T1		/Get old source pointer.
 	DCA	T0		/Save for copy.
-	ISZ	GDEV		/Bump return.
-	JMP I	GDEV		/Return.
+	ISZ	GETDEV		/Bump return.
+	JMP I	GETDEV		/Return.
 
 NODEV,	CLA
 	TAD	(-4)		/No device found. Copy only filename at end.
 	DCA	TL
-	TAD	(ST+4)
-	DCA	OFF
+	TAD	(TEMP+4)
+	DCA	OFFSET
 	IAC RAL CLL
-	TAD	DA
-	DCA	DA
-	JMP	NAM
+	TAD	DEST
+	DCA	DEST
+	JMP	DONAME
 
 LOOK,	0			/Search for char or EOS.
 	CIA			/Make compare out of char.
 	DCA	T1		/Save compare.
-	TAD	SP		/Get source pointer.
+	TAD	SRC		/Get source pointer.
 	DCA	T0		/Save as tmp pointer.
-	DCA	LC		/Clear count.
-1$:	ISZ	LC		/Bump count.
-	JMS	GCHR		/Get char.
+	DCA	COUNT		/Clear count.
+1$:	ISZ	COUNT		/Bump count.
+	JMS	GETCHR		/Get char.
 	SNA			/EOS?
 	JMP	2$		/Yes.
 	TAD	T1		/Compare.
 	SZA CLA			/Equals?
 	JMP	1$		/No. Repeat.
-	TAD	LC		/Yes. Get count.
+	TAD	COUNT		/Yes. Get count.
 	JMP I	LOOK		/Return.
-2$:	TAD	LC		/EOS. Get count.
+2$:	TAD	COUNT		/EOS. Get count.
 	CIA			/Negate.
 	JMP I	LOOK		/And return.
 
-GNAM,	0			/Get file name.
+GETNAM,	0			/Get file name.
 	TAD	(".)		/Look out for extension separator.
 	JMS	LOOK
 	SMA			/If positive, make negative.
 	CIA
 	IAC			/Decr. length by one.
 	SNA			/Zero length?
-	JMP I	GNAM		/Yes. Return. No filename.
+	JMP I	GETNAM		/Yes. Return. No filename.
 	TAD	(6)		/Limit length to 6.
 	SPA
 	CLA
 	TAD	(-6)
-	DCA	LC		/Save as loop count.
-	TAD	SP		/Get source pointer.
+	DCA	COUNT		/Save as loop count.
+	TAD	SRC		/Get source pointer.
 	DCA	T1		/Save tmp.
 	CMA			/Get extension separator pointer.
 	TAD	T0
-	DCA	SP		/Save as new source pointer.
+	DCA	SRC		/Save as new source pointer.
 	TAD	T1		/Get old source pointer.
 	DCA	T0		/Save as from pointer for copy.
-	ISZ	GNAM		/Bump return.
-	JMP I	GNAM		/Return.
-
-T0,	0			/Tmp
-T1,	0			/Tmp
-
+	ISZ	GETNAM		/Bump return.
+	JMP I	GETNAM		/Return.
