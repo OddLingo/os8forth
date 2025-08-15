@@ -145,9 +145,6 @@ INIT,	IOF		/ No interrupts
 	JMS CRLF
 	JMS MSG
 	TEXT \> \
-	.EXTERNAL FHINIT
-	CIF FHINIT
-	JMS FHINIT
 	JMS QUIT
 	HLT	
 
@@ -1827,21 +1824,16 @@ LEN6$:	ISZ LIMIT
 // the start of the file.  Otherwise, ior is the
 // implementation-defined I/O result code and fileid is undefined.
 
-	.EXTERNAL SETFIB,FHOPEN,FHCLOS,FHRDL
+	.EXTERNAL SETFID,FHOPEN,FHCLOS,FHRDL
 FILOPN,	0
-	TAD I SP
-	DCA T2
-	POP
-	TAD T2
-	/ Set File Information Block to use.
-	CIF 20; JMS SETFIB
-	JMS SETSTR  / Load MQ,C
-	CIF 20; JMS FHOPEN	/ Call OS8 interface
-	DCA T1		/ Save result
-	TAD T2		/ Fileid is direction
+	POP	/?? Ignore mode for now
+	/ Point at filename string
+	JMS SETSTR  / Load MQ,AC from stack
+	CIF FHOPEN; JMS FHOPEN	/ Call OS8 interface
+	/ AC is fileid, MQ is status
 	PUSH
-	TAD T2
-	PUSH		/ Result status
+	MQA
+	PUSH
 	JMP I FILOPN
 
 SETSTR,	0	/ Describe a counted string
@@ -1855,8 +1847,7 @@ SETSTR,	0	/ Describe a counted string
 // CLOSE-FILE ( id -- status )
 FILCLS,	0
 	TAD I SP
-	CIF 20; JMS SETFIB
-	CIF 20; JMS FHCLOS
+	CIF FHCLOS; JMS FHCLOS
 	DCA I SP
 	JMP I FILCLS
 
@@ -1888,8 +1879,8 @@ FILRD,	0	/ Read a block from the file
 / u1 = u2 the line terminator has yet to be reached. 
 FILRDL,	0
 	TAD I SP
-	CIF SETFIB
-	JMS SETFIB	/ Set Info Block
+	CIF SETFID
+	JMS SETFID	/ Set File-ID
 	POP
 	TAD I SP
 	MQL	/ Max length in MQ
@@ -1919,22 +1910,14 @@ FILWR,	0   / Write a block
 	.EXTERNAL FHWRL
 FILWRL,	0   / Write a line
 	TAD I SP
-	CIF SETFIB
-	JMS SETFIB	/ Set Info Block
+	CIF SETFID
+	JMS SETFID	/ Set fILE id
 	POP
 	JMS SETSTR	/ Load MQ,AC
 	JMS FHWRL
 	CIF .
 	PUSH		/ Status
 	JMP I FILWRL
-
-// Reserved area for disk device handler in F0.
-// OS/8 reserved area starts at 7600.
-	.ASECT RKPARK
-	FIELD 0
-	.GLOBAL RKSPOT
-	*7400
-RKSPOT,	0; *.+177
 
 	.SBTTL  Built-in word definitions
 

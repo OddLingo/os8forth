@@ -2,6 +2,7 @@
 This is an interpreter/compiler for the FORTH language that runs under the OS/8 monitor on simulated (or real!) Digital Equipment Corporation PDP-8 computers.  By modern standards, the PDP-8 had extremely limited resources so do not expect a full-featured FORTH with multi-tasking, etc.  However, it can read and write text files.
 
 ## Minimum hardware and software
+* PDP-8/e or later processor
 * Extended Arithmetic Element (EAE)
 * 12 KW memory
 * Console TTY

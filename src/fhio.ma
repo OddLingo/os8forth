@@ -6,7 +6,7 @@
    .INCLUDE COMMON.MA
    .LIST
 
-	.EXTERNAL DCTEND, RKSPOT
+	.EXTERNAL PREDEF, ENGINE
 	.XSECT FHIDX
 	FIELD 2
 INPTR,	0
@@ -15,30 +15,30 @@ OUTPTR,	0
 	.ZSECT FHCOM
 	FIELD 2
 FILES,	FIB1; FIB2
-THEFIB,	0		/ Address of working FIB
-FIBNUM,	0
+MAXFIB,	-2
+THEFIB,	0	/ Address of selected FIB
+FIBNUM,	0	/ The file-id
 LIMIT,	0
 COUNT,	0
 CHAR,	0
+FADDR,	0
+FLEN,	0
 
 	.DSECT FHBUF
 	FIELD 2
-FIB1,	.FIB	,,INBUF
-FIB2,	.FIB	,,OUTBUF
-INBUF=.
-	*.+400
-OUTBUF=.
-	*.+400
+FIB1,	.FIB	,,BUF1
+FIB2,	.FIB	,,BUF2
+BUF1=.; *.+400
+BUF2=.; *.+400
 
 	.EXTERNAL $FILEIO, LCLFIB
-
 	.RSECT FHIO
 	FIELD 2
 // Find an unused FIB by checking flag word.
 NEWFIB,	0
 	CLA
-	DCA FIBNUM
-	TAD (-3)
+	DCA FIBNUM	/ Start zero origin
+	TAD MAXFIB
 	DCA LIMIT
 GETFB$:	TAD (FILES)
 	TAD FIBNUM
@@ -46,7 +46,7 @@ GETFB$:	TAD (FILES)
 	TAD I THEFIB
 	DCA THEFIB
 CHK$:	TAD THEFIB	/ In use?
-	TAD FILFLG
+	TAD (FILFLG)
 	DCA CHAR
 	TAD I CHAR
 	SNA
@@ -55,25 +55,35 @@ CHK$:	TAD THEFIB	/ In use?
 	JMP SKIP$
 	CLA
 	JMP I NEWFIB	/ Zero means none available
-SKIP$:	TAD FIBNUM
-	IAC
-	DCA FIBNUM
+SKIP$:	ISZ FIBNUM
 	JMP GETFB$
-THIS$:	TAD FIBNUM
-	IAC
+THIS$:	ISZ FIBNUM	/ Make it 1-origin
+	TAD FIBNUM
 	JMP I NEWFIB
 
+// A way for the ENGINE to set the current file,
+// to be followed immediately by a read/write call.
+// Local routines can call SETFIB directly.
+	.ENTRY SETFID
+SETFID,	0
+	CIF .
+	JMS SETFIB
+	CIF ENGINE
+	JMP I SETFID
+
 // Select active FIB by number.  For convenience,
-// We copy it to LCLFIB.
+// We copy it to LCLFIB.  Fib number origin 1.
 	.ENTRY SETFIB
 SETFIB,	0
-	TAD (FILES-1)
-	DCA THEFIB
 	CDF .
+	TAD (FILES-1)	/ Get FIB addr from table
+	DCA THEFIB	/ Ptr into FIB table
+	TAD I THEFIB	/ Get FIB address
+	DCA THEFIB	/ Now it is 'the' FIB
 	STA		/ Copy 20 words
-	TAD I THEFIB
+	TAD THEFIB	/ From 'the' FIB
 	DCA INPTR
-	TAD (LCLFIB-1)
+	TAD (LCLFIB-1)	/ to the local FIB
 SETIT,	DCA OUTPTR
 	TAD (-20)
 	DCA LIMIT
@@ -83,71 +93,81 @@ FIBLP,	TAD I INPTR
 	JMP FIBLP
 	JMP I SETFIB
 
-// Restore out copy of the active FIB
+// Restore our copy of the active FIB
 RSTFIB,	0
 	TAD .-1		/ Borrow return point
 	DCA SETFIB
 	TAD (LCLFIB-1)
 	DCA INPTR
+	STA
 	TAD THEFIB
 	JMP SETIT
 
-// Load device handler.
-	.ENTRY FHINIT
-FHINIT,	0
+// Get device information
+GETHDL,	0
 	CLA
-	TAD (SBDEV)	/ Device to ask about
+	TAD SBDEV	/ Copy device name
 	DCA INFO$
+	TAD SBDEV+1
+	DCA INFO$+1
 	CDF .
-	CIF 10
-	JMS I (7700)
-	12    / INQUIRE request
+	CALUSR 12	/ INQUIRE request
 INFO$:	DEVICE DSK
 ENTRY$:	0
 	HLT
 	TAD INFO$+1	/ Save device number
-	DCA LCLFIB+DEVNUM
+	DCA CHAR
 	TAD ENTRY$	/ Is handler loaded?
-	SNA
-	JMS GETHDL	/ No, go load it
-	DCA LCLFIB+DEVADR
-	TAD FIB2+DEVNUM
-	/ Now load handler for that device
-	CDF .
-	CIF 10
-	JMS I (7700)
-	1	/ FETCH request
-ARG1$:	RKSPOT	      / Handler goes here
-	HLT
-	TAD ARG1$		/ Get entry point
-	DCA LCLFIB+DEVADR
-	TAD ARG1$
-	DCA FIB2+DEVADR
-	CDF DCTEND
-	CIF 0
-	JMP I FHINIT
+	SZA
+	JMP TOFIB$	/ Yes, set FIB
 
-GETHDL,	0
-ENTRY$:	/ Load a handler
+	/ No, Load handler for that device
+	TAD HDSPOT	/ Find spot for it.
+	TAD (-400)
+	DCA HDSPOT
+	TAD HDSPOT
+	IAC
+	DCA ARG3$
+
+	TAD SBDEV	/ Copy device name
+	DCA DNAME$
+	TAD SBDEV+1
+	DCA DNAME$+1
+	CDF .
+	CALUSR 1	/ FETCH request
+DNAME$:	DEVICE DSK
+ARG3$:	0	/ Handler load address
+	HLT
+	TAD ARG3$		/ entry point
+	DCA LCLFIB+DEVADR
+	TAD DNAME$+1		/ device number
+	DCA LCLFIB+DEVNUM
 	JMP I GETHDL
 
-/ Copy counted string from F1 to here then put
-/ a NUL at the end.  Src address in AC, count in MQ.
-/ We use the data buffer to hold the string for FPARSE.
-GETFN,	0     / Fetch ASCII filename from F1
-	CIA
-	IAC
-	CIA
+TOFIB$:	DCA LCLFIB+DEVADR	/ Save entry
+	TAD INFO$+1		/ Save number
+	DCA LCLFIB+DEVNUM
+	JMP I GETHDL
+
+// Load a device handler.  The device name is at SBDEV.
+HDSPOT,	7600
+	PAGE
+/ Copy counted string from Forth dictionary to here
+/ then put a NUL at the end.  We use the data buffer
+/ to hold the string for FPARSE.
+GETFN,	0
+	CLA CMA
+	TAD FADDR
 	DCA INPTR	/ src-1
-	MQA
+	TAD FLEN
 	CIA
-	DCA LIMIT
+	DCA LIMIT	/ -Length
 	STA		/ dest-1
 	TAD LCLFIB+BUFADR
 	DCA OUTPTR
-LOOP$:	CDF DCTEND
+LOOP$:	CDF PREDEF	/ Read from dictionary
 	TAD I INPTR
-	CDF .
+	CDF .	/ Write here
 	DCA I OUTPTR
 	ISZ LIMIT
 	JMP LOOP$
@@ -156,26 +176,37 @@ LOOP$:	CDF DCTEND
 	JMP I GETFN
 
 	PAGE
-// Open file
-	.ENTRY FHOPEN,FHRDL,FHRD
+	.ENTRY FHOPEN, FHRDL, FHRD
 	.EXTERNAL $FPARSE, SBFILE, SBDEV
+// Open file. Filename ptr in AC, length in MQ.
 FHOPEN,	0
+	DCA FADDR
+	MQA
+	DCA FLEN
+	CDF .
 	JMS NEWFIB	/ Get a free FIB
 	SNA
 	JMP FAIL$
 	JMS SETFIB	/ Make it current
-	JMS GETFN
-	TAD (LCLFIB+BUFADR)	/ Parse filespec
+
+	JMS GETFN	/ Copy filename from F1
+	TAD LCLFIB+BUFADR	/ Parse it
 	JMS $FPARSE
-	TAD LCLFIB+DEVADR	/ Is handler loaded?
-	SNA CLA
-	JMS GETHDL	/ No, go get it
-	JMS $FILEIO
-	2		/ IOPEN funtion
+	JMS GETHDL	/ Make sure handler loaded
+	JMS $FILEIO	/ Open the file
+	2
 	SBFILE		/ SB name pointer
-	CIF 00
-	JMS RSTFIB	/ Restore FIB copy
+	HLT
+
+	JMS RSTFIB	/ Update our copy
+
+	TAD FIBNUM	/ Return id number
+	MQL
+	CLA IAC		/ And ok status
+	CDF PREDEF
+	CIF ENGINE
 	JMP I FHOPEN
+
 FAIL$:	CLA
 	JMP .-4
 
@@ -185,8 +216,9 @@ FHCLOS,	0
 	JMS $FILEIO
 	13
 	HLT
-	DCA LCLFIB+FILFLG	/ Clear flags
-	JMS RSTFIB	/ Restore the FIB
+	CLA
+	DCA LCLFIB+FILFLG
+	JMS RSTFIB	/ Copy it back
 	JMP I FHCLOS
 
 	PAGE
@@ -213,7 +245,7 @@ LOOP$:	CDF .
 	ISZ LIMIT	/ Watch for overflow
 	JMP LOOP$
 	TAD CHAR
-	CDF DCTEND
+	CDF PREDEF
 	DCA I OUTPTR	/ Store and count it
 	ISZ COUNT
 	JMP LOOP$
@@ -222,7 +254,7 @@ EOL$:	TAD COUNT	/ Do not count CRLF
 	SKP
 EOF$:	CLA CMA
 	JMS RSTFIB	/ Save the FIB
-	CIF 00
+	CIF ENGINE
 	JMP I FHRDL
 
 // Read a block.
@@ -232,7 +264,7 @@ FHRD,	0
 	JMS $FILEIO
 	5
 	HLT
-	CIF 00
+	CIF ENGINE
 	JMS RSTFIB
 	JMP I FHRD
 
@@ -246,7 +278,7 @@ FHWRL,	0
 	MQA
 	CIA
 	DCA LIMIT	/ Count
-LOOP$:	CDF DCTEND
+LOOP$:	CDF PREDEF
 	TAD I INPTR
 	JMS OCHAR$
 	ISZ LIMIT
@@ -256,9 +288,9 @@ LOOP$:	CDF DCTEND
 	JMS OCHAR$
 	TAD (12)
 	JMS OCHAR$
-	CDF DCTEND
-	CIF 00
+	CDF PREDEF
 	JMS RSTFIB
+	CIF ENGINE
 	JMP I FHWRL
 
 OCHAR$:	0
