@@ -137,7 +137,7 @@ INIT,	IOF		/ No interrupts
 	JMS STACKS	/ Init stacks
 	KCC		/ Clear device flags
 	TCF
-	CDF DCTEND	/ Indirect references to F1
+	CDF TIB	/ Indirect references to F1
 	JMS AVAIL	/ Print available memory
 	JMS DOT
 	JMS MSG
@@ -447,7 +447,7 @@ LOOP$:	TAD I TEXT1	/ Advance and fetch
 MSG,	0
 LOOP$:	CDF .		/ We can indirect through MSG
 	TAD I MSG	/ Get next 2 chars
-	CDF DCTEND
+	CDF TIB
 	ISZ MSG		/ Advance over
 	SNA
 	JMP I MSG	/ Oops, zero so stop
@@ -680,7 +680,7 @@ LAYLIT,	0		/ Lay a literal and skip it
 	CLA
 	CDF .		/ Fetch from instruction space
 	TAD I LAYLIT
-	CDF DCTEND
+	CDF TIB
 	JMS LAYDN
 	ISZ LAYLIT
 	JMP I LAYLIT
@@ -801,7 +801,7 @@ SYSCON,	0		/ runtime for System constants
 	DCA T1
 	CDF .
 	TAD I T1
-	CDF DCTEND	/ Field One back on
+	CDF TIB	/ Field One back on
 	PUSH
 	JMP I SYSCON
 
@@ -900,7 +900,7 @@ FFETCH,	0
 	JMS SETFLD
 	JMS CHANGE
 	TAD I T1	/ Far fetch
-	CDF DCTEND
+	CDF TIB
 	DCA I SP
 	JMP I FFETCH
 
@@ -911,7 +911,7 @@ FSTORE,	0
 	TAD I SP	/ The value
 	JMS CHANGE
 	DCA I T1	/ Far Store
-	CDF DCTEND
+	CDF TIB
 	POP
 	JMP I FSTORE
 
@@ -928,7 +928,7 @@ FETCH,	0
 	CDF .
 	CLA
 	TAD I TOS
-	CDF DCTEND
+	CDF TIB
 	DCA I SP
 	JMP I FETCH
 
@@ -947,7 +947,7 @@ STORE,	0
 	CLA
 	TAD T1
 	DCA I TOS
-	CDF DCTEND
+	CDF TIB
 	JMP I STORE
 
 MOVE,	0		/ ( adr1 adr2 len -- )
@@ -1883,17 +1883,17 @@ FILRDL,	0
 	JMS SETFID	/ Set File-ID
 	POP
 	TAD I SP
-	MQL	/ Max length in MQ
+	MQL		/ Max length to MQ
 	POP
-	TAD I SP	/ Address in AC
-	CDF FHRDL
-	JMS FHRDL
-	CDF DCTEND
+	TAD I SP	/ Address to AC
+	CIF FHRDL
+	JMS FHRDL	/ Read one line
+	CDF TIB
 	SPA		/ Positive AC is u2
 	JMP EOF$
-	DCA I SP
+	DCA I SP	/ Actual length to stack
 	IAC
-	PUSH		/ TRUE flag
+	PUSH		/ TRUE flag to stack
 	PUSH		/ ior zero
 	JMP I FILRDL
 EOF$:	CLA

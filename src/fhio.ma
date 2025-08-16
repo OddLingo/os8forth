@@ -6,7 +6,7 @@
    .INCLUDE COMMON.MA
    .LIST
 
-	.EXTERNAL PREDEF, ENGINE
+	.EXTERNAL TIB, ENGINE
 	.XSECT FHIDX
 	FIELD 2
 INPTR,	0
@@ -16,7 +16,7 @@ OUTPTR,	0
 	FIELD 2
 FILES,	FIB1; FIB2
 MAXFIB,	-2
-THEFIB,	0	/ Address of selected FIB
+FIBPTR,	0	/ Address of selected FIB
 FIBNUM,	0	/ The file-id
 LIMIT,	0
 COUNT,	0
@@ -31,7 +31,7 @@ FIB2,	.FIB	,,BUF2
 BUF1=.; *.+400
 BUF2=.; *.+400
 
-	.EXTERNAL $FILEIO, LCLFIB
+	.EXTERNAL $FILEIO, THEFIB
 	.RSECT FHIO
 	FIELD 2
 // Find an unused FIB by checking flag word.
@@ -42,10 +42,10 @@ NEWFIB,	0
 	DCA LIMIT
 GETFB$:	TAD (FILES)
 	TAD FIBNUM
-	DCA THEFIB
-	TAD I THEFIB
-	DCA THEFIB
-CHK$:	TAD THEFIB	/ In use?
+	DCA FIBPTR
+	TAD I FIBPTR
+	DCA FIBPTR
+CHK$:	TAD FIBPTR	/ In use?
 	TAD (FILFLG)
 	DCA CHAR
 	TAD I CHAR
@@ -68,22 +68,23 @@ THIS$:	ISZ FIBNUM	/ Make it 1-origin
 SETFID,	0
 	CIF .
 	JMS SETFIB
+	CDF TIB
 	CIF ENGINE
 	JMP I SETFID
 
 // Select active FIB by number.  For convenience,
-// We copy it to LCLFIB.  Fib number origin 1.
+// We copy it to THEFIB.  Fib number origin 1.
 	.ENTRY SETFIB
 SETFIB,	0
 	CDF .
 	TAD (FILES-1)	/ Get FIB addr from table
-	DCA THEFIB	/ Ptr into FIB table
-	TAD I THEFIB	/ Get FIB address
-	DCA THEFIB	/ Now it is 'the' FIB
+	DCA FIBPTR	/ Ptr into FIB table
+	TAD I FIBPTR	/ Get FIB address
+	DCA FIBPTR	/ Now it is 'the' FIB
 	STA		/ Copy 20 words
-	TAD THEFIB	/ From 'the' FIB
+	TAD FIBPTR	/ From 'the' FIB
 	DCA INPTR
-	TAD (LCLFIB-1)	/ to the local FIB
+	TAD (THEFIB-1)	/ to the local FIB
 SETIT,	DCA OUTPTR
 	TAD (-20)
 	DCA LIMIT
@@ -97,10 +98,10 @@ FIBLP,	TAD I INPTR
 RSTFIB,	0
 	TAD .-1		/ Borrow return point
 	DCA SETFIB
-	TAD (LCLFIB-1)
+	TAD (THEFIB-1)
 	DCA INPTR
 	STA
-	TAD THEFIB
+	TAD FIBPTR
 	JMP SETIT
 
 // Get device information
@@ -139,14 +140,14 @@ DNAME$:	DEVICE DSK
 ARG3$:	0	/ Handler load address
 	HLT
 	TAD ARG3$		/ entry point
-	DCA LCLFIB+DEVADR
+	DCA THEFIB+DEVADR
 	TAD DNAME$+1		/ device number
-	DCA LCLFIB+DEVNUM
+	DCA THEFIB+DEVNUM
 	JMP I GETHDL
 
-TOFIB$:	DCA LCLFIB+DEVADR	/ Save entry
+TOFIB$:	DCA THEFIB+DEVADR	/ Save entry
 	TAD INFO$+1		/ Save number
-	DCA LCLFIB+DEVNUM
+	DCA THEFIB+DEVNUM
 	JMP I GETHDL
 
 // Load a device handler.  The device name is at SBDEV.
@@ -163,9 +164,9 @@ GETFN,	0
 	CIA
 	DCA LIMIT	/ -Length
 	STA		/ dest-1
-	TAD LCLFIB+BUFADR
+	TAD THEFIB+BUFADR
 	DCA OUTPTR
-LOOP$:	CDF PREDEF	/ Read from dictionary
+LOOP$:	CDF TIB	/ Read from dictionary
 	TAD I INPTR
 	CDF .	/ Write here
 	DCA I OUTPTR
@@ -190,7 +191,7 @@ FHOPEN,	0
 	JMS SETFIB	/ Make it current
 
 	JMS GETFN	/ Copy filename from F1
-	TAD LCLFIB+BUFADR	/ Parse it
+	TAD THEFIB+BUFADR	/ Parse it
 	JMS $FPARSE
 	JMS GETHDL	/ Make sure handler loaded
 	JMS $FILEIO	/ Open the file
@@ -203,7 +204,7 @@ FHOPEN,	0
 	TAD FIBNUM	/ Return id number
 	MQL
 	CLA IAC		/ And ok status
-	CDF PREDEF
+	CDF TIB
 	CIF ENGINE
 	JMP I FHOPEN
 
@@ -212,13 +213,16 @@ FAIL$:	CLA
 
 	.ENTRY FHCLOS
 FHCLOS,	0
+	CDF .
 	JMS SETFIB
 	JMS $FILEIO
 	13
 	HLT
 	CLA
-	DCA LCLFIB+FILFLG
+	DCA THEFIB+FILFLG
 	JMS RSTFIB	/ Copy it back
+	CDF TIB
+	CIF ENGINE
 	JMP I FHCLOS
 
 	PAGE
@@ -238,23 +242,27 @@ LOOP$:	CDF .
 	JMP EOF$
 	AND (177)	/ Strip parity bit
 	DCA CHAR
-	TAD CHAR
-	TAD (-12)	/ Watch for end of line
-	SNA
-	JMP EOL$
-	ISZ LIMIT	/ Watch for overflow
-	JMP LOOP$
-	TAD CHAR
-	CDF PREDEF
+	TAD CHAR	/ Save it
+	CDF TIB
 	DCA I OUTPTR	/ Store and count it
 	ISZ COUNT
-	JMP LOOP$
-EOL$:	TAD COUNT	/ Do not count CRLF
-	TAD (-2)
+	TAD CHAR
+	TAD (-12)	/ Was it end of line?
+	SNA CLA
+	JMP EOL$
+	ISZ LIMIT	/ Watch for overflow
+	JMP LOOP$	/ Get another
+	SKP 		/ Don't back up
+EOL$:	TAD (-2)	/ Do not count CRLF
+	TAD COUNT
 	SKP
-EOF$:	CLA CMA
+EOF$:	STA		/ -1 means end of file
+	DCA CHAR	/ Stash length
+	CDF .
 	JMS RSTFIB	/ Save the FIB
+	CDF TIB
 	CIF ENGINE
+	TAD CHAR	/ Length in AC
 	JMP I FHRDL
 
 // Read a block.
@@ -264,8 +272,9 @@ FHRD,	0
 	JMS $FILEIO
 	5
 	HLT
-	CIF ENGINE
 	JMS RSTFIB
+	CDF TIB
+	CIF ENGINE
 	JMP I FHRD
 
 	PAGE
@@ -278,18 +287,18 @@ FHWRL,	0
 	MQA
 	CIA
 	DCA LIMIT	/ Count
-LOOP$:	CDF PREDEF
+LOOP$:	CDF TIB
 	TAD I INPTR
+	CDF .
 	JMS OCHAR$
 	ISZ LIMIT
 	JMP LOOP$
-	CDF .		/ Append CRLF
-	TAD (15)
+	TAD (15)	/ Append CRLF
 	JMS OCHAR$
 	TAD (12)
 	JMS OCHAR$
-	CDF PREDEF
 	JMS RSTFIB
+	CDF TIB
 	CIF ENGINE
 	JMP I FHWRL
 
@@ -298,5 +307,4 @@ OCHAR$:	0
 	JMS $FILEIO	/ OCHAR
 	6
 	HLT
-	CDF .
 	JMP I OCHAR$
