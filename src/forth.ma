@@ -1844,6 +1844,19 @@ SETSTR,	0	/ Describe a counted string
 	POP
 	JMP I SETSTR
 
+// CREATE-FILE ( addr len mode -- id status )
+	.EXTERNAL FHCRE
+FILCRE,	0
+	POP	/?? Ignore mode for now
+	/ Point at filename string
+	JMS SETSTR  / Load MQ,AC from stack
+	CIF FHCRE; JMS FHCRE	/ OS8 interface
+	/ AC is fileid, MQ is status
+	PUSH
+	MQA
+	PUSH
+	JMP I FILCRE
+
 // CLOSE-FILE ( id -- status )
 FILCLS,	0
 	TAD I SP
@@ -1914,6 +1927,7 @@ FILWRL,	0   / Write a line
 	JMS SETFID	/ Set fILE id
 	POP
 	JMS SETSTR	/ Load MQ,AC
+	CIF FHWRL
 	JMS FHWRL
 	CIF .
 	PUSH		/ Status
@@ -1944,7 +1958,8 @@ NAME6,	ZBLOCK 10	/ Sought word here in SIXBIT
 	.DISABLE FILL
 	.ENABLE SIXBIT
 /	.NOLIST
-	A=0
+	B=0
+	TEXT "CREATE-FILE_"; A=.; 6; B; FILCRE 
 // Terminal Buffers 80 chars each
 	TEXT "TIB_";   B=.; 2; A; DOVAR
 	.GLOBAL TIB

@@ -96,7 +96,8 @@ FIBLP,	TAD I INPTR
 
 // Restore our copy of the active FIB
 RSTFIB,	0
-	TAD .-1		/ Borrow return point
+	CLA
+	TAD RSTFIB	/ Borrow return point
 	DCA SETFIB
 	TAD (THEFIB-1)
 	DCA INPTR
@@ -177,7 +178,7 @@ LOOP$:	CDF TIB	/ Read from dictionary
 	JMP I GETFN
 
 	PAGE
-	.ENTRY FHOPEN, FHRDL, FHRD
+	.ENTRY FHOPEN, FHRDL, FHRD, FHCRE
 	.EXTERNAL $FPARSE, SBFILE, SBDEV
 // Open file. Filename ptr in AC, length in MQ.
 FHOPEN,	0
@@ -211,6 +212,39 @@ FHOPEN,	0
 FAIL$:	CLA
 	JMP .-4
 
+// Create file. Filename ptr in AC, length in MQ.
+FHCRE,	0
+	DCA FADDR	/ Save for later
+	MQA
+	DCA FLEN	/ Save name length
+	CDF .
+	JMS NEWFIB	/ Get a free FIB
+	SNA
+	JMP FAIL$
+	JMS SETFIB	/ Make it current
+
+	JMS GETFN	/ Copy filename from F1
+	TAD THEFIB+BUFADR	/ Parse it
+	JMS $FPARSE
+	JMS GETHDL	/ Make sure handler loaded
+	JMS $FILEIO	/ Create the file
+	3
+	SBFILE		/ SB name pointer
+	HLT
+
+	JMS RSTFIB	/ Update our copy
+
+	TAD FIBNUM	/ Return id number
+	MQL
+	CLA IAC		/ And ok status
+	CDF TIB
+	CIF ENGINE
+	JMP I FHCRE
+
+FAIL$:	CLA
+	JMP .-4
+
+// CLOSE-FILE ( id -- status )
 	.ENTRY FHCLOS
 FHCLOS,	0
 	CDF .
@@ -219,7 +253,7 @@ FHCLOS,	0
 	13
 	HLT
 	CLA
-	DCA THEFIB+FILFLG
+	DCA THEFIB+FILFLG / Mark unused
 	JMS RSTFIB	/ Copy it back
 	CDF TIB
 	CIF ENGINE
@@ -289,7 +323,6 @@ FHWRL,	0
 	DCA LIMIT	/ Count
 LOOP$:	CDF TIB
 	TAD I INPTR
-	CDF .
 	JMS OCHAR$
 	ISZ LIMIT
 	JMP LOOP$
@@ -297,7 +330,7 @@ LOOP$:	CDF TIB
 	JMS OCHAR$
 	TAD (12)
 	JMS OCHAR$
-	JMS RSTFIB
+DONE$:	JMS RSTFIB
 	CDF TIB
 	CIF ENGINE
 	JMP I FHWRL
@@ -306,5 +339,8 @@ OCHAR$:	0
 	CDF .
 	JMS $FILEIO	/ OCHAR
 	6
-	HLT
+	JMP DONE$	/ Oops
+	CLA
 	JMP I OCHAR$
+	/ AC >= 0: out of room
+	/ AC<0: fatal
