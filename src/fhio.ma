@@ -286,14 +286,16 @@ LOOP$:	CDF .
 	JMS $FILEIO
 	7		/ ICHAR
 	JMP EOF$
+	CDF TIB
 	AND (177)	/ Strip parity bit
 	DCA CHAR
 	TAD CHAR	/ Check EOF
 	TAD (-32)
 	SNA CLA
 	JMP EOF$
-	TAD CHAR	/ Save it
-	CDF TIB
+	TAD CHAR	/ NUL is also EOF
+	SNA
+	JMP EOF$
 	DCA I OUTPTR	/ Store and count it
 	ISZ COUNT
 	TAD CHAR

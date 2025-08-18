@@ -15,11 +15,13 @@ This is an interpreter/compiler for the FORTH language that runs under the OS/8 
 * Field 2 (locations 20000 and above) is used for I/O buffers and OS/8 file system interfaces.
 * Most of Field 2 and all fields above that are available to the FORTH programmer by way of some special words.
 
-## FORTH issues
+## PDP-8 Idiosyncrasies
 * The CELL size is one 12-bit value
 * The 'character' words (C@, C!, C,) also operate on words
 * The Data and Return stacks have 128 words each.  There is no protection against under- or overflow.
-* Although it is is enticing to use all 32K words for the dictionary, this would require the use of double word addresses *everywhere* and since the FORTH environment is heavily built out of pointers, this would make the dictionary twice as big just to start, and the runtime engine code would be larger as well.  So the dictionary has to fit in 4096 words although the programmer can access the higher memory fields.
+* Although it is is enticing to use all 32K words for the dictionary, this would require the use of double word addresses *everywhere* and since the FORTH environment is heavily built out of pointers, this would make the dictionary twice as big just to start, and the runtime engine code would be larger as well.  So the dictionary has to fit in 4096 words although the programmer can access the higher memory fields (see **Custom Words** below.)
+* The maximum size of a file on OS/8 is 4096 blocks of 256 words. The standard format for text files packs 3 ASCII characters into two words which makes the maximum file size 1,572,864 characters.  This means that file positions as reported by FILE-POSITION and consumed by REPOSITION-FILE have to be doublewords.
+* Turning on bit 0 of the switch register will cause the names of words to be printed on the console as they are executed.
 
 ### Custom words
 The following FORTH words are extensions to the FORTH Standard to gain access to unique features of the PDP-8 hardware.

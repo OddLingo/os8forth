@@ -241,9 +241,11 @@ LLOOP$:	TAD TIBPTR	/ Read a line
 	PUSH
 	DCA INOFF	/ Zero input offset
 	JMS ACCEPT
-	TAD I SP
-	DCA LINLEN	/ Actual length
+	TAD I SP	/ Actual input length
 	POP
+	SNA
+	JMP LLOOP$	/ Nothing, get another.
+	DCA LINLEN	/ Save it.
 
 	/ Get the next word but check end of line.
 WLOOP$:	TAD INOFF
@@ -415,7 +417,7 @@ ACCEPT,	0
 	TAD I SP	/ Save buffer size
 	DCA INLEN$
 	POP
-	TAD I SP	/ Buffer address
+	TAD I SP	/ Put it here
 	DCA INBUF$
 	POP
 	.INPUT
@@ -428,19 +430,25 @@ INLEN$:	0		/ len
 
 	/ Reading from a file instead
 FILE$:	PUSH		/ File id on stack
+	/ Stack: id len addr
 	JMS FILRDL	/ Read a line
-	TAD I SP	/ Check status
+	/ Stack: iot flag len
+	TAD I SP	/ Check status. Zero is OK
 	POP
-	CLA
-	TAD I SP	/ Check flag
-	CLA
+	SZA CLA
+	JMP EOF$
+	POP		/ Do not need flag
 	JMP I ACCEPT
-EOF$:	TAD SOURCE	/ Close input file
+
+EOF$:	POP	/ Do not need flag
+	POP   	/ Do not need length
+	TAD SOURCE	/ Close input file
 	PUSH
 	JMS FILCLS
+	POP		/ Ignore status
+	CLA
 	DCA SOURCE	/ Back to console
-	CLA 		/ Look like an empty line
-	PUSH
+	PUSH 		/ Look like an empty line
 	JMP I ACCEPT
 
 	.SBTTL Output
@@ -1918,7 +1926,8 @@ FILRD,	0	/ Read a block from the file
 / was received before u1 characters were read, then u2
 / is the number of characters, not including the line
 / terminator, actually read (0 <= u2 <= u1). When
-/ u1 = u2 the line terminator has yet to be reached. 
+/ u1 = u2 the line terminator has yet to be reached.
+/ At EOF ior=-1, flag=0, u2=0
 FILRDL,	0
 	TAD I SP
 	CIF SETFID
@@ -1964,13 +1973,13 @@ FILWRL,	0   / Write a line
 	JMP I FILWRL
 
 // INCLUDE-FILE ( id -- )
+// Change SOURCE-ID.  The real work is in ACCEPT.
 FILINC,	0
 	TAD I SP
 	DCA SOURCE
-	TAD SOURCE
-	CIF SETFID; JMS SETFID
-	DCA SOURCE
+	POP
 	JMP I FILINC
+
 	.SBTTL  Built-in word definitions
 
 	.DSECT PREDEF
