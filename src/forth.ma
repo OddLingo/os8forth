@@ -735,7 +735,7 @@ QUOTS,	0		/ Run time for literal strings ( -- addr len )
 
 DQUOT,	0		/ Compile ." as S" and TYPE
 	JMS LAYLIT
-	XTYPES		/ Op to make addr,len
+	XSTR
 	JMS LITSTR	/ Put the string inline
 	JMS LAYLIT
 	XTYPE
