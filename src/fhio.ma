@@ -74,7 +74,6 @@ SETFID,	0
 
 // Select active FIB by number.  For convenience,
 // We copy it to THEFIB.  Fib number origin 1.
-	.ENTRY SETFIB
 SETFIB,	0
 	CDF .
 	TAD (FILES-1)	/ Get FIB addr from table
@@ -259,6 +258,19 @@ FHCLOS,	0
 	CIF ENGINE
 	JMP I FHCLOS
 
+// FLUSH-FILE (	id -- status )
+	.ENTRY FHFLUS
+FHFLUS,	0
+	CDF .
+	JMS SETFIB
+	JMS $FILEIO
+	14
+	HLT
+	JMS RSTFIB
+	CDF TIB
+	CIF ENGINE
+	JMP I FHFLUS
+
 	PAGE
 // Read a line of text.  F1 buffer in AC, Length in MQ.
 // This acts like ACCEPT.  Final length in AC, -1 if
@@ -276,6 +288,10 @@ LOOP$:	CDF .
 	JMP EOF$
 	AND (177)	/ Strip parity bit
 	DCA CHAR
+	TAD CHAR	/ Check EOF
+	TAD (-32)
+	SNA CLA
+	JMP EOF$
 	TAD CHAR	/ Save it
 	CDF TIB
 	DCA I OUTPTR	/ Store and count it

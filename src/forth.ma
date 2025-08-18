@@ -22,8 +22,8 @@
 / disk I/O routines.
 
 / Field 0:
-/   00000-07377 Interpreter
-/   07400-07577 Disk handler
+/   00000-07177 Interpreter
+/   07200-07577 Disk handler
 /   07600-07777 OS/8 Fixed
 / Field 1:
 /   10000-17177 Forth dictionary
@@ -31,9 +31,9 @@
 /   17400-17577 Return stack
 /   17600-17777 OS/8 Fixed
 / Field 2
-/   20000-20177 Console input buffer
-/   20200-00577 File system input block buffer
-/   20600-20777 File system output block buffer
+/   20000-21777 I/O library
+/   22000-23177 Forth I/I support
+/   24400-25000 Filename parser
 
 	.XSECT SCAN
 	FIELD 0
@@ -233,8 +233,8 @@ STOP,	JMS CRLF
 //    exists.
 QUIT,	0
 	JMS STACKS	/ Initialize stacks
-	DCA STATE
 	DCA SOURCE	/ Console is input
+INTERP,	DCA STATE	/ Not compiling
 LLOOP$:	TAD TIBPTR	/ Read a line
 	PUSH
 	TAD TIBLEN	/ Max length
@@ -408,6 +408,10 @@ KEY,	0		/ Wait for a key ( -- ch )
 // Read a string ( c-addr +n1 -- +n2 )
 // Receive a string of at most +n1 characters.
 ACCEPT,	0
+	TAD SOURCE	/ Non-zero src means a file
+	SZA
+	JMP FILE$
+	/ From console.  Use library routine.
 	TAD I SP	/ Save buffer size
 	DCA INLEN$
 	POP
@@ -419,6 +423,23 @@ INBUF$:	0		/ buf
 INLEN$:	0		/ len
 	/ Get length from MQ
 	CLA MQA
+	PUSH
+	JMP I ACCEPT
+
+	/ Reading from a file instead
+FILE$:	PUSH		/ File id on stack
+	JMS FILRDL	/ Read a line
+	TAD I SP	/ Check status
+	POP
+	CLA
+	TAD I SP	/ Check flag
+	CLA
+	JMP I ACCEPT
+EOF$:	TAD SOURCE	/ Close input file
+	PUSH
+	JMS FILCLS
+	DCA SOURCE	/ Back to console
+	CLA 		/ Look like an empty line
 	PUSH
 	JMP I ACCEPT
 
@@ -1864,6 +1885,14 @@ FILCLS,	0
 	DCA I SP
 	JMP I FILCLS
 
+// FLUSH-FILE ( id -- status )
+	.EXTERNAL FHFLUS
+FILFLU,	0
+	TAD I SP
+	CIF FHFLUS JMS FHFLUS
+	DCA I IP
+	JMP I FILFLU
+
 // READ-FILE ( c-addr u1 fileid -- u2 ior )
 // Read u1 consecutive characters to c-addr from the
 // current position of the file identified by fileid.
@@ -1910,7 +1939,8 @@ FILRDL,	0
 	PUSH		/ ior zero
 	JMP I FILRDL
 EOF$:	CLA
-	PUSH		/ FALSE flag
+	DCA I SP	/ Zero length
+	PUSH  		/ Zero flag
 	STA
 	PUSH		/ IOR -1
 	JMP I FILRDL
@@ -1933,6 +1963,14 @@ FILWRL,	0   / Write a line
 	PUSH		/ Status
 	JMP I FILWRL
 
+// INCLUDE-FILE ( id -- )
+FILINC,	0
+	TAD I SP
+	DCA SOURCE
+	TAD SOURCE
+	CIF SETFID; JMS SETFID
+	DCA SOURCE
+	JMP I FILINC
 	.SBTTL  Built-in word definitions
 
 	.DSECT PREDEF
@@ -1958,7 +1996,10 @@ NAME6,	ZBLOCK 10	/ Sought word here in SIXBIT
 	.DISABLE FILL
 	.ENABLE SIXBIT
 /	.NOLIST
-	B=0
+	A=0
+	TEXT "SOURCE-ID_"; B=.; 5; A; SYSCON; SOURCE
+	TEXT "INCLUDE-FILE"; A=.; 6; B; FILINC
+	TEXT "FLUSH-FILE"; B=.; 5; A; FILFLU 
 	TEXT "CREATE-FILE_"; A=.; 6; B; FILCRE 
 // Terminal Buffers 80 chars each
 	TEXT "TIB_";   B=.; 2; A; DOVAR
