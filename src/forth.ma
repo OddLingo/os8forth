@@ -406,6 +406,67 @@ KEY,	0		/ Wait for a key ( -- ch )
 	JMS PUT
 	JMP I KEY
 
+	.SBTTL Convert to Sixbit
+	
+// These routines are called from a few places to convert
+// 7bit ASCII to packed SIXBIT.  These are used in the
+// FORTH dictionary and in OS/8 file and device names.
+
+SIXIDE,	0		/ Left/right toggle
+SIXLEN,	0		/ Count of output words
+SIXCHR,	0
+SIXOUT,	0		/ Destination buffer
+SIXIN,	0		/ Count of input characters
+
+A6INIT,	0		/ Initialize ASCII/SIXBIT
+	DCA SIXOUT	/ Destination
+	DCA SIXLEN	/ Word count
+	DCA SIXIDE	/ Side toggle
+	DCA SIXIN	/ Character count
+	JMP I A6INIT
+
+A6ADD,	0		/ Add one character
+	DCA SIXCHR
+	ISZ SIXIN
+	TAD SIXCHR
+	TAD (-140	/ Fold lower case
+	SPA
+	TAD (140
+	AND MASK6
+	DCA SIXCHR	/ Save as SIXBIT
+	TAD SIXIDE	/ Check which side
+	SZA
+	JMP A6R$	/ Go do 2nd character
+
+// Doing the left side so shift and store
+	TAD SIXCHR
+	BSW		/ Move to left half
+	DCA I SIXOUT	/ Save to output
+	ISZ SIXLEN
+	ISZ SIXIDE	/ Set right flag
+	JMP I A6ADD	/ Done with input
+
+A6R$:	CLA
+	TAD I SIXOUT	/ Fetch left side
+	TAD SIXCHR	/ Merge second code
+	DCA I SIXOUT
+	DCA SIXIDE	/ Clear side flag
+	ISZ SIXOUT	/ Advance to next output word
+	JMP I A6ADD
+
+A6DONE,	0		/ Report word count
+	TAD SIXLEN
+	JMP I A6DONE
+
+A6NAME,	0		/ Pad SIXBIT to a full word
+	TAD SIXIDE	/ Odd input needs padding
+	SNA
+	JMP I A6NAME
+	CLA
+	TAD NAMPAD	/ Names pad with underscore
+	JMS A6ADD
+	JMP I A6NAME
+
 	PAGE
 // Read a string ( c-addr +n1 -- +n2 )
 // Receive a string of at most +n1 characters.
@@ -504,6 +565,47 @@ TO8,	0		/ Convert 6b to 8b
 	TAD (100
 	TAD ASPACE
 	JMP I TO8
+
+
+IGNORE,	0		/ A non-operation
+	JMP I IGNORE
+
+// Set up for a far reference.  Address will be
+// in T1 and CHANGE is primed to do the CDF.
+SETFLD,	0
+	TAD I SP	/ Get field number
+	AND (7
+	CLL RTL; RAL
+	TAD (CDF
+	DCA CHANGE+1
+	POP
+	TAD I SP	/ Get address
+	DCA T1
+	JMP I SETFLD
+
+CHANGE,	0		/ Set programmed data field
+	0
+	JMP I CHANGE
+
+// X@ Extended fetch ( addr fld -- n )
+FFETCH,	0
+	JMS SETFLD
+	JMS CHANGE
+	TAD I T1	/ Far fetch
+	CDF TIB
+	DCA I SP
+	JMP I FFETCH
+
+// X! Extended store ( n addr fld -- )
+FSTORE,	0
+	JMS SETFLD
+	POP
+	TAD I SP	/ The value
+	JMS CHANGE
+	DCA I T1	/ Far Store
+	CDF TIB
+	POP
+	JMP I FSTORE
 
 	.SBTTL Comparisons
 
@@ -840,111 +942,6 @@ ISLIT,	0     / Push a literal from dictionary
 	JMP I SYSCON
 
 	PAGE
-
-	.SBTTL Convert to Sixbit
-	
-// These routines are called from a few places to convert
-// 7bit ASCII to packed SIXBIT.  These are used in the
-// FORTH dictionary and in OS/8 file and device names.
-
-SIXIDE,	0		/ Left/right toggle
-SIXLEN,	0		/ Count of output words
-SIXCHR,	0
-SIXOUT,	0		/ Destination buffer
-SIXIN,	0		/ Count of input characters
-
-A6INIT,	0		/ Initialize ASCII/SIXBIT
-	DCA SIXOUT	/ Destination
-	DCA SIXLEN	/ Word count
-	DCA SIXIDE	/ Side toggle
-	DCA SIXIN	/ Character count
-	JMP I A6INIT
-
-A6ADD,	0		/ Add one character
-	DCA SIXCHR
-	ISZ SIXIN
-	TAD SIXCHR
-	TAD (-140	/ Fold lower case
-	SPA
-	TAD (140
-	AND MASK6
-	DCA SIXCHR	/ Save as SIXBIT
-	TAD SIXIDE	/ Check which side
-	SZA
-	JMP A6R$	/ Go do 2nd character
-
-// Doing the left side so shift and store
-	TAD SIXCHR
-	BSW		/ Move to left half
-	DCA I SIXOUT	/ Save to output
-	ISZ SIXLEN
-	ISZ SIXIDE	/ Set right flag
-	JMP I A6ADD	/ Done with input
-
-A6R$:	CLA
-	TAD I SIXOUT	/ Fetch left side
-	TAD SIXCHR	/ Merge second code
-	DCA I SIXOUT
-	DCA SIXIDE	/ Clear side flag
-	ISZ SIXOUT	/ Advance to next output word
-	JMP I A6ADD
-
-A6DONE,	0		/ Report word count
-	TAD SIXLEN
-	JMP I A6DONE
-
-A6NAME,	0		/ Pad SIXBIT to a full word
-	TAD SIXIDE	/ Odd input needs padding
-	SNA
-	JMP I A6NAME
-	CLA
-	TAD NAMPAD	/ Names pad with underscore
-	JMS A6ADD
-	JMP I A6NAME
-
-	PAGE
-
-IGNORE,	0		/ A non-operation
-	JMP I IGNORE
-
-// Set up for a far reference.  Address will be
-// in T1 and CHANGE is primed to do the CDF.
-SETFLD,	0
-	TAD I SP	/ Get field number
-	AND (7
-	CLL RTL; RAL
-	TAD (CDF
-	DCA CHANGE+1
-	POP
-	TAD I SP	/ Get address
-	DCA T1
-	JMP I SETFLD
-
-CHANGE,	0		/ Set programmed data field
-	0
-	JMP I CHANGE
-
-// X@ Extended fetch ( addr fld -- n )
-FFETCH,	0
-	JMS SETFLD
-	JMS CHANGE
-	TAD I T1	/ Far fetch
-	CDF TIB
-	DCA I SP
-	JMP I FFETCH
-
-// X! Extended store ( n addr fld -- )
-FSTORE,	0
-	JMS SETFLD
-	POP
-	TAD I SP	/ The value
-	JMS CHANGE
-	DCA I T1	/ Far Store
-	CDF TIB
-	POP
-	JMP I FSTORE
-
-	PAGE
 	.SBTTL Memory
 
 // @ Simple fetch ( addr -- n )
@@ -1236,7 +1233,6 @@ OUT$:	CLA		/ Digits are on the stack in reverse order
 
 	.SBTTL Compiler
 
-	PAGE
 /// Allocate space in the dictionary ( n -- )
 ALLOT,	0
 	TAD I SP
@@ -1957,7 +1953,6 @@ EOF$:	CLA
 FILWR,	0   / Write a block
 	JMP I FILWR
 
-	PAGE
 // WRITE-LINE ( addr len id -- st )
 	.EXTERNAL FHWRL
 FILWRL,	0   / Write a line

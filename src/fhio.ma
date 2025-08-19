@@ -124,7 +124,7 @@ ENTRY$:	0
 
 	/ No, Load handler for that device
 	TAD HDSPOT	/ Find spot for it.
-	TAD (-400)
+	TAD (-200)
 	DCA HDSPOT
 	TAD HDSPOT
 	IAC
@@ -176,7 +176,6 @@ LOOP$:	CDF TIB	/ Read from dictionary
 	DCA I OUTPTR
 	JMP I GETFN
 
-	PAGE
 	.ENTRY FHOPEN, FHRDL, FHRD, FHCRE
 	.EXTERNAL $FPARSE, SBFILE, SBDEV
 // Open file. Filename ptr in AC, length in MQ.
@@ -329,7 +328,6 @@ FHRD,	0
 	CIF ENGINE
 	JMP I FHRD
 
-	PAGE
 // WRITE-LINE.  Address in AC, count in MQ.
 // SETFIB must have been called first.
 	.ENTRY FHWRL
