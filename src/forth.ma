@@ -2045,6 +2045,16 @@ END$:	CLA
 	PUSH
 	JMP I PARSE
 
+// Conditional abort with message
+// IF ." abc" TYPE ABORT THEN
+ABTQ,	0	/ ABORT"
+	JMS GENIF
+	JMS DQUOT
+	JMS LAYLIT
+	XABORT
+	JMS FIXUP
+	JMP I ABTQ
+
 	.SBTTL  Built-in word definitions
 
 	.DSECT PREDEF
@@ -2070,7 +2080,8 @@ NAME6,	ZBLOCK 10	/ Sought word here in SIXBIT
 	.DISABLE FILL
 	.ENABLE SIXBIT
 /	.NOLIST
-	A=0
+	B=0
+	TEXT \ABORT"\; A=.; 4003; B; ABTQ
 	TEXT "PARSE_";	B=.; 3; A; PARSE
 	TEXT "POSTPONE";A=.; 4004; B; PSTPON
 	TEXT "2@";	B=.; 1; A; FETCH2
@@ -2164,8 +2175,8 @@ TIB,	*.+120
 	TEXT "+_";	XPLUS=.; 1; XMINUS; PLUS
 	TEXT "!_";	A=.; 	1; XPLUS; STORE
 	TEXT "C!";	B=.; 	1; A; STORE
-	TEXT "ABORT_";A=.; 	3; B; ABORT
-	TEXT "FIND";	B=.; 	2; A; FIND
+	TEXT "ABORT_";	XABORT=.; 3; B; ABORT
+	TEXT "FIND";	B=.; 	2; XABORT; FIND
 	TEXT "SWAP";	XSWAP=.; 2; B; SWAP
 	TEXT "KEY_";	B=.; 	2; XSWAP; KEY
 	TEXT ";_";	A=.;	4001; B; SEMI
