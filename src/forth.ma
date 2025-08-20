@@ -119,7 +119,7 @@ PUSHRS,	0
 	DCA I RSP
 	JMP I PUSHRS
 
-/// Lay down a dictionary word from AC
+// Lay down a dictionary word from AC, like COMMA
 LAYDN,	0
 	DCA I HERE
 	ISZ HERE
@@ -466,6 +466,33 @@ A6NAME,	0		/ Pad SIXBIT to a full word
 	TAD NAMPAD	/ Names pad with underscore
 	JMS A6ADD
 	JMP I A6NAME
+
+// 2! ( hi lo addr -- )
+STORE2,	0
+	STA
+	TAD I SP
+	DCA TEXT2
+	POP
+	TAD I SP
+	DCA I TEXT2
+	POP
+	TAD I SP
+	DCA I TEXT2
+	POP
+	JMP I STORE2
+
+// 2@ ( addr -- hi lo )
+FETCH2,	0
+	STA
+	TAD I SP
+	DCA TEXT1
+	POP
+	TAD I TEXT1
+	PUSH
+	TAD I TEXT2
+	PUSH
+	JMS SWAP
+	JMP I FETCH2
 
 	PAGE
 // Read a string ( c-addr +n1 -- +n2 )
@@ -1331,7 +1358,7 @@ BL,	0		/ Push a space
 INPTR,	0
 NXTIN,	0
 	TAD TIBPTR	/ Starting address
-	TAD INOFF	/ Plus offset ( check INOFF > TIDLEN )
+	TAD INOFF	/ Plus offset ?? check INOFF > TIDLEN
 	DCA INPTR
 	ISZ INOFF	/ Advance over it
 	TAD I INPTR
@@ -1366,7 +1393,7 @@ LOOP1$:	JMS NXTIN	/ Get next candidate
 	DCA T1
 	POP		/ Dispose of char on stack
 
-	JMS CLASS$
+	JMS CLASS
 	JMP LOOP1$	/ Skip leading delimiters
 	JMP END$	/ Stop at any control code
 	JMP SAVE$	/ Save this character
@@ -1375,7 +1402,7 @@ LOOP2$:	JMS NXTIN	/ Get another
 	TAD I SP
 	DCA T1
 	POP
-	JMS CLASS$
+	JMS CLASS
 	JMP END$	/ Stop at delimiter
 	JMP END$	/ or any control code
 SAVE$:	CLA		/ or save and keep going
@@ -1393,20 +1420,19 @@ END$:	CLA
 //  1. The sought delimiter
 //  2. A control character
 //  3. Anything else
-CLASS$:	0
+CLASS,	0
 	TAD CHAR	/ Is it the delimiter?
 	TAD T1
-	SNA
-	JMP I CLASS$	/ Delimiter first return
-	ISZ CLASS$
-	CLA
+	SNA CLA
+	JMP I CLASS	/ Delimiter first return
+	ISZ CLASS
 	TAD ASPACE
 	CIA
 	TAD T1
 	SPA
-	JMP I CLASS$	/ Control, skip return
-	ISZ CLASS$
-	JMP I CLASS$	/ Else double skip
+	JMP I CLASS	/ Control, skip return
+	ISZ CLASS
+	JMP I CLASS	/ Else double skip
 
 // Convert counted string to address and length
 // ( caddr -- addr len )
@@ -1419,6 +1445,22 @@ COUNTS,	0
 	TAD TOS
 	PUSH	/ Push the length
 	JMP I COUNTS
+
+// POSTPONE compiles IMMEDIATE words so that they
+// do not run at compile time.
+PSTPON,	0
+	JMS BL		/ Lookup next word
+	JMS WORD
+	JMS FIND	/ S: xt 1
+	TAD I SP
+	POP
+	SNA CLA		/ Found it?
+	JMP POP$  	/ No, lose caddr
+	TAD I SP
+	JMS LAYDN
+POP$:	POP
+	JMP I PSTPON
+
 	PAGE
 	.SBTTL Flow control
 
@@ -1975,6 +2017,34 @@ FILINC,	0
 	POP
 	JMP I FILINC
 
+// Parse a string up to a specified delimiter,
+// putting the address and length on the stack.
+// This is quite different from WORD.
+PARSE,	0
+	TAD I SP
+	CIA
+	DCA CHAR	/ Save the negative delimiter
+	TAD TIBPTR
+	TAD INOFF
+	DCA I SP	/ This is the output address
+	DCA COUNT	/ Zero count
+
+LOOP$:	JMS NXTIN	/ Look at next character
+	TAD I SP
+	DCA T1
+	POP
+	JMS CLASS
+	JMP END$	/ Stop at delimiter
+	JMP END$	/ or any control code
+SAVE$:	ISZ COUNT	/ or keep going
+	CLA
+	JMP LOOP$
+
+END$:	CLA
+	TAD COUNT	/ Fix up length
+	PUSH
+	JMP I PARSE
+
 	.SBTTL  Built-in word definitions
 
 	.DSECT PREDEF
@@ -2001,6 +2071,10 @@ NAME6,	ZBLOCK 10	/ Sought word here in SIXBIT
 	.ENABLE SIXBIT
 /	.NOLIST
 	A=0
+	TEXT "PARSE_";	B=.; 3; A; PARSE
+	TEXT "POSTPONE";A=.; 4004; B; PSTPON
+	TEXT "2@";	B=.; 1; A; FETCH2
+	TEXT "2!";	A=.; 1; B; STORE2
 	TEXT "SOURCE-ID_"; B=.; 5; A; SYSCON; SOURCE
 	TEXT "INCLUDE-FILE"; A=.; 6; B; FILINC
 	TEXT "FLUSH-FILE"; B=.; 5; A; FILFLU 
