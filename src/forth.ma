@@ -12,8 +12,14 @@
 	.MACRO PUSH
 	JMS PUSHS
 	.ENDM
+
 	.MACRO POP
 	ISZ SP
+	.ENDM
+
+	.MACRO LAYOP OP
+	JMS LAYLIT
+	OP
 	.ENDM
 
 / All machine code is in Field zero so IF register
@@ -316,8 +322,7 @@ NUMCK$:	TAD WRDPTR
 	JMP WLOOP$	/ Already on stack
 
 	/ Comple numeric literal now on stack
-	JMS LAYLIT
-	XLIT
+	LAYOP XLIT
 	TAD I SP
 	POP
 	JMS LAYDN
@@ -845,8 +850,7 @@ LAYLIT,	0		/ Lay a literal and skip it
 
 // S" Push address and count of a literal string
 SQUOT,	0
-	JMS LAYLIT
-	XSTR
+	LAYOP XSTR
 	JMS LITSTR
 	JMP I SQUOT
 
@@ -863,17 +867,14 @@ QUOTS,	0		/ Run time for literal strings ( -- addr len )
 	JMP I QUOTS
 
 DQUOT,	0		/ Compile ." as S" and TYPE
-	JMS LAYLIT
-	XSTR
+	LAYOP XSTR
 	JMS LITSTR	/ Put the string inline
-	JMS LAYLIT
-	XTYPE
+	LAYOP XTYPE
 	JMP I DQUOT
 
 // ." Print a literal string
 RDQUOT,	0
-	JMS LAYLIT
-	XTYPE	/ Lay down runtime
+	LAYOP XTYPE	/ Lay down runtime
 	JMS LITSTR	/ Lay down the string
 	JMP I RDQUOT
 
@@ -1303,7 +1304,7 @@ COPY$:	TAD I TEXT1	/ Lay down the name
 	JMS LAYDN
 	TAD HERE
 	DCA CPTR
-	JMS LAYLIT; XCUTE  / Forth runtime for now
+	LAYOP XCUTE  / Forth runtime for now
 	TAD HERE    / Set data area pointer
 	DCA DPTR
 
@@ -1472,8 +1473,7 @@ MARKFU,	0		/ Record a fixup location
 	JMP I MARKFU
 
 GENIF,	0
-	JMS LAYLIT
-	XJMPF
+	LAYOP XJMPF
 	JMS MARKFU	/ Fixup to ELSE or THEN
 	JMP I GENIF
 
@@ -1488,8 +1488,7 @@ FIXUP,	0		/ Fixup a previous jump
 	JMP I FIXUP
 
 GENELS,	0		/ Compile ELSE
-	JMS LAYLIT
-	XJMP
+	LAYOP XJMP
 	JMS MARKFU
 	JMS SWAP
 	JMS FIXUP
@@ -1935,7 +1934,8 @@ FILCLS,	0
 	.EXTERNAL FHFLUS
 FILFLU,	0
 	TAD I SP
-	CIF FHFLUS JMS FHFLUS
+	CIF FHFLUS
+	JMS FHFLUS
 	DCA I IP
 	JMP I FILFLU
 
@@ -2050,10 +2050,28 @@ END$:	CLA
 ABTQ,	0	/ ABORT"
 	JMS GENIF
 	JMS DQUOT
-	JMS LAYLIT
-	XABORT
+	LAYOP XABORT
 	JMS FIXUP
 	JMP I ABTQ
+
+// CHAR: Parse a character and push it
+PSHCH,	0
+	JMS BL
+	JMS WORD
+	POP
+	TAD WRDBUF+1
+	PUSH
+	JMP I PSHCH
+
+// [CHAR]: Push a character during compile
+CPSHCH,	0
+	JMS BL
+	JMS WORD
+	POP
+	LAYOP XLIT
+	TAD WRDBUF+1
+	JMS LAYDN
+	JMP I CPSHCH
 
 	.SBTTL  Built-in word definitions
 
@@ -2081,6 +2099,8 @@ NAME6,	ZBLOCK 10	/ Sought word here in SIXBIT
 	.ENABLE SIXBIT
 /	.NOLIST
 	B=0
+	TEXT "CHAR";	A=.; 2; B; PSHCH
+	TEXT "[CHAR]";	B=.; 4003; A; CPSHCH
 	TEXT \ABORT"\; A=.; 4003; B; ABTQ
 	TEXT "PARSE_";	B=.; 3; A; PARSE
 	TEXT "POSTPONE";A=.; 4004; B; PSTPON
