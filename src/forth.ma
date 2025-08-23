@@ -85,6 +85,7 @@ LINLEN,	0	/ # of characters in TIB
 LENMSK,	17	/ Length mask in dictonary header
 IMMFLG,	4000	/ Flag to execute during compilation
 FTHFLG,	2000	/ Flag for interpreted code
+DATFLG,	1000	/ Flag to push data address
 
 / Stacks are at the top of Field 1.
 SBASE,	7200	/ Bottom of data stack
@@ -194,16 +195,16 @@ LOOP$:	CLA
 	// Determine execution type from flag
 	TAD I CURENT
 	AND FTHFLG
-	SZA
+	SZA CLA
 	JMP FORTH$	/ Interpreted
 	TAD I CPTR
 	DCA CPTR
 	JMS I CPTR	/ Machine code
-	JMP LOOP$
+	JMP LOOP$	/ DOES> returns here
 
 FORTH$:	TAD IP		/ Save old IP for later return
 	JMS PUSHRS	/ Go down a level on R-stack
-	TAD IP		/ Save old IP
+	JMS PUSHME	/ Push data address?
 	TAD I CPTR	/ Set new IP
 	DCA IP
 	JMP LOOP$
@@ -214,6 +215,16 @@ RET$:	TAD I RSP	/ Get resume address
 	ISZ RSP		/ Pop return stack
 	JMP LOOP$
 	JMP LOOP$
+
+PUSHME,	0
+	CLA
+	TAD I CURENT	/ Need data address?
+	AND DATFLG
+	SNA CLA
+	JMP I PUSHME	/ No
+	TAD DPTR	/ Yes
+	PUSH
+	JMP I PUSHME
 
 ABORT,	0
 	DCA IP		/ Force hard stop
@@ -899,7 +910,7 @@ DOEXEC,	0		/ ( xt -- )
 
 	TAD I CURENT	/ Check execution mode
 	AND FTHFLG
-	SZA
+	SZA CLA
 	JMP FORTH$	/ It is compiled FORTH
 	TAD I CPTR
 	DCA CPTR
@@ -907,8 +918,9 @@ DOEXEC,	0		/ ( xt -- )
 	JMP I DOEXEC
 
 FORTH$:	CLA
-	TAD DPTR	/ Set runtime IP to this code
+	TAD I CPTR	/ Set runtime IP to this code
 	DCA IP
+	JMS PUSHME
 	JMS RUN
 	JMP I DOEXEC
 
@@ -1298,14 +1310,16 @@ COPY$:	TAD I TEXT1	/ Lay down the name
 
 	/ Lay down the name length
 	TAD COUNT
+	TAD DATFLG	/ Default push me
 	JMS LAYDN
 
 	TAD DICT	/ Link to previous word
 	JMS LAYDN
-	TAD HERE
+
+	TAD HERE	/ CPTR to where code goes
 	DCA CPTR
-	LAYOP XCUTE  / Forth runtime for now
-	TAD HERE    / Set data area pointer
+	JMS LAYDN	/ Zero code pointer
+	TAD HERE    	/ Set data area pointer
 	DCA DPTR
 
 	TAD NEWORD	/ This is now first word
@@ -1324,7 +1338,10 @@ COLON,	0
 	JMS CREATE	/ Init new entry, set NEWORD
 	TAD I NEWORD	/ Set FORTH-type flag
 	TAD FTHFLG
+	AND (6777)	/ Clear Push Data flag
 	DCA I NEWORD
+	TAD HERE	/ Data IS the code
+	DCA I CPTR
 	JMP I COLON
 
 AVAIL,	0		/ Get available memory
@@ -2073,12 +2090,41 @@ CPSHCH,	0
 	JMS LAYDN
 	JMP I CPSHCH
 
+// DOES> add runtime action to a CREATEd item.
+// This runs as a defining word is being compiled.
+DOES,	0
+	LAYOP XDOES	/ Make new word call part 2
+	LAYOP 0		/ then return
+	JMP I DOES
+
+// Runtime for DOES>.  Sets CODE pointer for a new word.
+// Will leave the body address of the word being
+// defined on the stack. This runs as a defining word
+// is executing.
+DODOES,	0
+	/ The IP is pointing at the RETURN op.  One
+	/ after that is the runtime.
+	TAD IP
+	IAC
+	DCA T2		/ This will be new code ptr
+	TAD NEWORD	/ Find code ptr of word being
+	IAC; IAC	/ defined.
+	DCA T1
+	TAD T2		/ Point it at DOES> clause
+	DCA I T1
+
+	TAD I NEWORD	/ Set FORTH-type flag
+	TAD FTHFLG
+	DCA I NEWORD
+	JMP I DODOES
+
 	.SBTTL  Built-in word definitions
 
 	.DSECT PREDEF
 	FIELD 1
 WRDBUF,	ZBLOCK 20	/ Assemble ASCII token here
 NAME6,	ZBLOCK 10	/ Sought word here in SIXBIT
+ZERO,	0	/ For faking a return
 
 / Dictionary of built-in words.  Each entry is at least
 / 4 words long so 32 fit on a memory page or 1024 in
@@ -2099,6 +2145,8 @@ NAME6,	ZBLOCK 10	/ Sought word here in SIXBIT
 	.ENABLE SIXBIT
 /	.NOLIST
 	B=0
+	TEXT "(DS)";	XDOES=.; 2; B; DODOES
+	TEXT "DOES>_";	B=.; 4003; XDOES; DOES
 	TEXT "CHAR";	A=.; 2; B; PSHCH
 	TEXT "[CHAR]";	B=.; 4003; A; CPSHCH
 	TEXT \ABORT"\; A=.; 4003; B; ABTQ
