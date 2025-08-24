@@ -58,6 +58,7 @@ BASE,	12	/ Number conversion base
 HERE,	DCTEND	/ Start of free memory
 DICT,	XBYE	/ Start of dictionary chain
 STATE,	0	/ Compiling
+INJECT,	0	/ Interrupt execution
 SOURCE,	0	/ Where interpreter reads from
 
 /// Temporary values
@@ -141,7 +142,7 @@ LAYDN,	0
 INIT,	IOF		/ No interrupts
 	CLA 
 	DCA SOURCE	/ Start in Console mode
-	JMS STACKS	/ Init stacks
+	JMS RESET	/ Init stacks
 	KCC		/ Clear device flags
 	TCF
 	CDF TIB	/ Indirect references to F1
@@ -164,33 +165,39 @@ BYE,	0		/ Exit to OS/8
 // Execute compiled FORTH opcodes until RETURN.
 // Any machine-code words are called with JMS but
 // FORTH words are handled iteratively with their
-// own call stack. Calls to the FORTH word "EXECUTE"
-// are also trapped here.
+// own call stack. Calls to "EXECUTE" are handled
+// specially to avoid recursion in the PDP-8 code.
 RUN,	0
 	CLA
 	JMS PUSHRS	/ Fake a zero return address
-LOOP$:	CLA
+NEXTOP,	CLA
+	TAD INJECT	/ Is there a pending EXECUTE?
+	SNA CLA
+	JMP NOINJ
+	DCA INJECT	/ Yes, clear flag
+	JMP UNWIND	/ And take xt from stack
+
 	// IP=0 means stop. CURENT=0 means return
-	TAD IP
+NOINJ,	TAD IP
+	SNA CLA
+	JMP I RUN
+UNWIND,	JMS UNEXEC	/ Unwind EXECUTE calls
+	TAD I IP	/ Fetch next instruction
 	SNA
-	JMP STOP
-	CLA
-	TAD I IP	/Fetch next instruction
-	SNA
-	JMP RET$
+	JMP RETURN
 	DCA CURENT	/ Save as the "current" word
 
 	ISZ IP		/ Increment IP for next time
 	JMS TRACE
 
 	// Set code and data pointers
-	TAD CURENT
-	IAC		/ Skip over head word
-	IAC		/ Skip dictonary backlink
-	DCA CPTR	/ Points at code word
+RUNIT,	TAD CURENT
+	IAC		/ Skip flag word
+	IAC		/ Skip dictonary link
+	DCA CPTR	/ Addr of code word
 	TAD CPTR
 	IAC
-	DCA DPTR
+	DCA DPTR	/ Addr of parameter area
 
 	// Determine execution type from flag
 	TAD I CURENT
@@ -200,22 +207,52 @@ LOOP$:	CLA
 	TAD I CPTR
 	DCA CPTR
 	JMS I CPTR	/ Machine code
-	JMP LOOP$	/ DOES> returns here
+	JMP NEXTOP	/ DOES> returns here
 
 FORTH$:	TAD IP		/ Save old IP for later return
+	    		/ Note: it might be zero
 	JMS PUSHRS	/ Go down a level on R-stack
-	JMS PUSHME	/ Push data address?
+	JMS PUSHME	/ Maybe push data address
 	TAD I CPTR	/ Set new IP
 	DCA IP
-	JMP LOOP$
+	JMP NEXTOP
+
+UNEXEC,	0   / Remove explicit EXECUTEs
+TOSS$:	TAD I SP
+	CIA
+	TAD (XCUTE)
+	SZA CLA
+	JMP I UNEXEC
+	POP
+	JMP TOSS$
 
 / Return from an interpreted word.
-RET$:	TAD I RSP	/ Get resume address
+RETURN,	TAD I RSP	/ Get resume address
 	DCA IP
 	ISZ RSP		/ Pop return stack
-	JMP LOOP$
-	JMP LOOP$
+	JMP NEXTOP
 
+// Console interpreter sends EXECUTE here.  We
+// start the low level interpreter only if it
+// is not already running.  Otherise we signal
+// it to do the work of EXECUTE itself.
+DOEXEC,	0
+	TAD IP		/ Low interpreter running?
+	SZA CLA
+	JMP INJ$
+	JMS UNEXEC	/ Unwind self
+	TAD I SP	/ Not running, so start it
+	POP
+	DCA CURENT
+	TAD DOEXEC	/ Redirect RUN's return
+	DCA RUN
+	JMP RUNIT
+INJ$:	ISZ INJECT	/ Set flag to Interrupt RUN
+	JMP I DOEXEC
+
+// Push the address of the parameter area of
+// the current word.  This is used by CREATEd
+// words but not COLON-defined words.
 PUSHME,	0
 	CLA
 	TAD I CURENT	/ Need data address?
@@ -249,9 +286,7 @@ STOP,	JMS CRLF
 //    has been completed, and no ambiguous condition
 //    exists.
 QUIT,	0
-	JMS STACKS	/ Initialize stacks
-	DCA SOURCE	/ Console is input
-INTERP,	DCA STATE	/ Not compiling
+	JMS RESET	/ Initialize the engine
 LLOOP$:	TAD TIBPTR	/ Read a line
 	PUSH
 	TAD TIBLEN	/ Max length
@@ -342,7 +377,7 @@ NUMCK$:	TAD WRDPTR
 NUMER$:	JMS UNDEF	/ Don't know what
 	JMP END$
 
-STACKS,	0		/ Initialize both stacks
+RESET,	0		/ Initialize both stacks
 	TAD SBASE	/ Set data stack top
 	TAD SSIZE
 	DCA SP
@@ -350,7 +385,11 @@ STACKS,	0		/ Initialize both stacks
 	TAD RSIZE
 	DCA RSP
 	DCA I RSP	/ Force zero as top opcode
-	JMP I STACKS
+	DCA IP		/ Nothing is running
+	DCA STATE	/ Not compiling
+	DCA INJECT	/ No pending EXECUTE
+	DCA SOURCE	/ Reading from console
+	JMP I RESET
 
 TWODIV,	0     / Arithmetic shift right
 	TAD I SP
@@ -892,37 +931,6 @@ RDQUOT,	0
 HALT,	0
 	HLT
 	JMP I HALT
-
-DOEXEC,	0		/ ( xt -- )
-	TAD I SP	/ Get dictionary header
-	POP
-	DCA CURENT
-
-	JMS TRACE
-	TAD CURENT	/ 
-	IAC		/ Skip backlink
-	IAC
-	DCA CPTR	/ Code address
-
-	TAD CPTR
-	IAC
-	DCA DPTR	/ Data address
-
-	TAD I CURENT	/ Check execution mode
-	AND FTHFLG
-	SZA CLA
-	JMP FORTH$	/ It is compiled FORTH
-	TAD I CPTR
-	DCA CPTR
-	JMS I CPTR	/ It is machine code
-	JMP I DOEXEC
-
-FORTH$:	CLA
-	TAD I CPTR	/ Set runtime IP to this code
-	DCA IP
-	JMS PUSHME
-	JMS RUN
-	JMP I DOEXEC
 
 SET10,	0		/ Runtime for DECIMAL
 	TAD (12
