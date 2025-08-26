@@ -52,6 +52,7 @@ TEXT2,	0
 /// Forth machine registers
 SP,	0	/ Data stack pointer
 RSP,	0	/ Return stack pointer
+OSP,	0	/ Opcode stack pointer
 IP,	0	/ Next instruction pointer
 
 BASE,	12	/ Number conversion base
@@ -86,14 +87,13 @@ LINLEN,	0	/ # of characters in TIB
 LENMSK,	17	/ Length mask in dictonary header
 IMMFLG,	4000	/ Flag to execute during compilation
 FTHFLG,	2000	/ Flag for interpreted code
-DATFLG,	1000	/ Flag to push data address
 
 / Stacks are at the top of Field 1.
 SBASE,	7200	/ Bottom of data stack
-SSIZE,	0177
-STTOP,	7577
 RBASE,	7400	/ Bottom of return stack
-RSIZE,	0177
+OBASE,	7500	/ Bottom of opcode stack
+SSIZE,	0177
+RSIZE,	0077
 
 ASPACE,	40	/ ASCII Space
 NEGZRO,	7720	/ Negative ASCII zero
@@ -126,6 +126,16 @@ PUSHRS,	0
 	TAD TOSTMP	/ Put value there
 	DCA I RSP
 	JMP I PUSHRS
+
+// Push AC on opcode stack
+PUSHOS,	0
+	DCA TOSTMP
+	STA		/ Decrement OSP
+	TAD OSP
+	DCA OSP
+	TAD TOSTMP	/ Put value there
+	DCA I OSP
+	JMP I PUSHOS
 
 // Lay down a dictionary word from AC, like COMMA
 LAYDN,	0
@@ -177,14 +187,14 @@ NEXTOP,	CLA
 	DCA INJECT	/ Yes, clear flag
 	JMP UNWIND	/ And take xt from stack
 
-	// IP=0 means stop. CURENT=0 means return
-NOINJ,	TAD IP
+NOINJ,	TAD IP		/ IP=0 means stop
 	SNA CLA
 	JMP I RUN
+
 UNWIND,	JMS UNEXEC	/ Unwind EXECUTE calls
 	TAD I IP	/ Fetch next instruction
 	SNA
-	JMP RETURN
+	JMP RETURN	/ Zero opcode means return
 	DCA CURENT	/ Save as the "current" word
 
 	ISZ IP		/ Increment IP for next time
@@ -192,6 +202,8 @@ UNWIND,	JMS UNEXEC	/ Unwind EXECUTE calls
 
 	// Set code and data pointers
 RUNIT,	TAD CURENT
+	JMS PUSHOS	/ Remember what it is
+	TAD CURENT
 	IAC		/ Skip flag word
 	IAC		/ Skip dictonary link
 	DCA CPTR	/ Addr of code word
@@ -207,12 +219,12 @@ RUNIT,	TAD CURENT
 	TAD I CPTR
 	DCA CPTR
 	JMS I CPTR	/ Machine code
+	ISZ OSP
 	JMP NEXTOP	/ DOES> returns here
 
-FORTH$:	TAD IP		/ Save old IP for later return
+FORTH$:	TAD IP	/ Save old IP for later return
 	    		/ Note: it might be zero
 	JMS PUSHRS	/ Go down a level on R-stack
-	JMS PUSHME	/ Maybe push data address
 	TAD I CPTR	/ Set new IP
 	DCA IP
 	JMP NEXTOP
@@ -230,6 +242,7 @@ TOSS$:	TAD I SP
 RETURN,	TAD I RSP	/ Get resume address
 	DCA IP
 	ISZ RSP		/ Pop return stack
+	ISZ OSP		/ And op stack
 	JMP NEXTOP
 
 // Console interpreter sends EXECUTE here.  We
@@ -239,7 +252,7 @@ RETURN,	TAD I RSP	/ Get resume address
 DOEXEC,	0
 	TAD IP		/ Low interpreter running?
 	SZA CLA
-	JMP INJ$
+	JMP INJ$	/ Yes.
 	JMS UNEXEC	/ Unwind self
 	TAD I SP	/ Not running, so start it
 	POP
@@ -249,19 +262,6 @@ DOEXEC,	0
 	JMP RUNIT
 INJ$:	ISZ INJECT	/ Set flag to Interrupt RUN
 	JMP I DOEXEC
-
-// Push the address of the parameter area of
-// the current word.  This is used by CREATEd
-// words but not COLON-defined words.
-PUSHME,	0
-	CLA
-	TAD I CURENT	/ Need data address?
-	AND DATFLG
-	SNA CLA
-	JMP I PUSHME	/ No
-	TAD DPTR	/ Yes
-	PUSH
-	JMP I PUSHME
 
 ABORT,	0
 	DCA IP		/ Force hard stop
@@ -377,14 +377,19 @@ NUMCK$:	TAD WRDPTR
 NUMER$:	JMS UNDEF	/ Don't know what
 	JMP END$
 
-RESET,	0		/ Initialize both stacks
+// Initialize all engine state and stacks.
+RESET,	0
 	TAD SBASE	/ Set data stack top
 	TAD SSIZE
 	DCA SP
 	TAD RBASE	/ Set return stack top
 	TAD RSIZE
 	DCA RSP
+	TAD OBASE	/ Set opcode stack top
+	TAD RSIZE
+	DCA OSP
 	DCA I RSP	/ Force zero as top opcode
+	DCA I OSP
 	DCA IP		/ Nothing is running
 	DCA STATE	/ Not compiling
 	DCA INJECT	/ No pending EXECUTE
@@ -414,6 +419,7 @@ CMPNOW,	0     / ] Resume compiling
 	ISZ STATE
 	JMP I CMPNOW
 
+	PAGE
 INVERT,	0
 	TAD I SP
 	CMA
@@ -1318,7 +1324,6 @@ COPY$:	TAD I TEXT1	/ Lay down the name
 
 	/ Lay down the name length
 	TAD COUNT
-	TAD DATFLG	/ Default push me
 	JMS LAYDN
 
 	TAD DICT	/ Link to previous word
@@ -1326,12 +1331,12 @@ COPY$:	TAD I TEXT1	/ Lay down the name
 
 	TAD HERE	/ CPTR to where code goes
 	DCA CPTR
-	JMS LAYDN	/ Zero code pointer
+	LAYOP XBODY	/ Default push self
 	TAD HERE    	/ Set data area pointer
 	DCA DPTR
 
 	TAD NEWORD	/ This is now first word
-	DCA DICT
+	DCA DICT	/ in the dictionary.
 	JMP I CREATE
 
 COMMA,	0		/ Add word to definition
@@ -2103,8 +2108,31 @@ CPSHCH,	0
 DOES,	0
 	LAYOP XDOES	/ Make new word call part 2
 	LAYOP 0		/ then return
+	LAYOP XPAR	/ Push paramater address
 	JMP I DOES
 
+// >BODY push address of some word's parameter
+// area on the stack.  It is 3 words after the
+// flag word.
+TOBODY,	0
+	TAD I SP
+	IAC; IAC; IAC
+	DCA I SP
+	JMP I TOBODY
+
+// Push address of running word's parameter
+// area on the stack.  This runs as a CREATEd
+// word's runtime is executing.
+PARADR,	0
+	TAD OSP		/ Look who called us
+	IAC
+	DCA T1
+	TAD I T1	/ Get opcode
+	PUSH
+	JMS TOBODY
+	JMP I PARADR
+
+	PAGE
 // Runtime for DOES>.  Sets CODE pointer for a new word.
 // Will leave the body address of the word being
 // defined on the stack. This runs as a defining word
@@ -2125,6 +2153,39 @@ DODOES,	0
 	TAD FTHFLG
 	DCA I NEWORD
 	JMP I DODOES
+
+// +! ( n addr -- )
+PSTORE,	0
+	TAD I SP	/ Get address
+	POP
+	DCA T1
+	TAD I T1	/ Get old value
+	TAD I SP	/ Add increment
+	DCA I T1	/ Store it back
+	POP	
+	JMP I PSTORE
+
+// FILL ( addr n char -- )
+FILL,	0
+	TAD I SP
+	DCA CHAR	/ Fill with this
+	POP
+	TAD I SP
+	CIA
+	DCA LIMIT	/ How many
+	POP
+	STA
+	TAD I SP
+	DCA TEXT2	/ Where
+	POP
+	TAD LIMIT	/ Do nothing if n=0
+	SNA CLA
+	JMP I FILL
+	TAD CHAR
+LOOP$:	DCA I TEXT2	/ Write n words
+	ISZ LIMIT
+	JMP LOOP$
+	JMP I FILL
 
 	.SBTTL  Built-in word definitions
 
@@ -2153,6 +2214,12 @@ ZERO,	0	/ For faking a return
 	.ENABLE SIXBIT
 /	.NOLIST
 	B=0
+	TEXT "(PAR";	XPAR=.; 2; B; PARADR
+	TEXT ">BODY_";	XBODY=.; 3; XPAR; TOBODY
+	TEXT "FILL";	A=.; 2; XBODY; FILL
+	TEXT "0<>_";	B=.; 2; A; NEQZ
+	TEXT "+!";	A=.; 1; B; PSTORE
+	TEXT "WORD";	B=.; 2; A; WORD
 	TEXT "(DS)";	XDOES=.; 2; B; DODOES
 	TEXT "DOES>_";	B=.; 4003; XDOES; DOES
 	TEXT "CHAR";	A=.; 2; B; PSHCH
@@ -2257,9 +2324,9 @@ TIB,	*.+120
 	TEXT "KEY_";	B=.; 	2; XSWAP; KEY
 	TEXT ";_";	A=.;	4001; B; SEMI
 	TEXT "BASE";	B=.; 2; A; SYSVAR; BASE
-	TEXT "ACCEPT";A=.; 3; B; ACCEPT
-	TEXT "CREATE";A=.; 3; B; CREATE
-	TEXT "ALLOT_";B=.; 3; A; ALLOT
+	TEXT "ACCEPT";  A=.; 3; B; ACCEPT
+	TEXT "CREATE";	B=.; 3; A; CREATE
+	TEXT "ALLOT_";	A=.; 3; B; ALLOT
 	TEXT "AND_";	B=.;	2; A; ANDOP
 	TEXT "OR";	A=.;	1; B; OROP
 	TEXT "ROT_";	B=.;	2; A; ROTOP
