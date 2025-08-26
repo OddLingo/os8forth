@@ -3,8 +3,6 @@
 
 	.NOLIST
 
-	.INCLUDE COMMON.MA
-
 	.LIST
 
 / These are macros so that bounds checking can be
@@ -170,7 +168,8 @@ BYE,	0		/ Exit to OS/8
 	JMS MSG
 	TEXT \GOODBYE@\
 	JMS CRLF
-	.EXIT
+	CDF CIF
+	JMP 7600
 
 // Execute compiled FORTH opcodes until RETURN.
 // Any machine-code words are called with JMS but
@@ -558,6 +557,7 @@ FETCH2,	0
 	PAGE
 // Read a string ( c-addr +n1 -- +n2 )
 // Receive a string of at most +n1 characters.
+	.EXTERNAL	$INPUT
 ACCEPT,	0
 	TAD SOURCE	/ Non-zero src means a file
 	SZA
@@ -569,7 +569,8 @@ ACCEPT,	0
 	TAD I SP	/ Put it here
 	DCA INBUF$
 	POP
-	.INPUT
+	CIF $INPUT
+	JMS $INPUT
 INBUF$:	0		/ buf
 INLEN$:	0		/ len
 	/ Get length from MQ
@@ -1331,7 +1332,7 @@ COPY$:	TAD I TEXT1	/ Lay down the name
 
 	TAD HERE	/ CPTR to where code goes
 	DCA CPTR
-	LAYOP XBODY	/ Default push self
+	LAYOP MYADR	/ Default push self
 	TAD HERE    	/ Set data area pointer
 	DCA DPTR
 
@@ -1351,7 +1352,6 @@ COLON,	0
 	JMS CREATE	/ Init new entry, set NEWORD
 	TAD I NEWORD	/ Set FORTH-type flag
 	TAD FTHFLG
-	AND (6777)	/ Clear Push Data flag
 	DCA I NEWORD
 	TAD HERE	/ Data IS the code
 	DCA I CPTR
@@ -2106,6 +2106,9 @@ CPSHCH,	0
 // DOES> add runtime action to a CREATEd item.
 // This runs as a defining word is being compiled.
 DOES,	0
+	TAD I NEWORD	/ Set Forth runtime flag
+	TAD (FTHFLG)
+	DCA I NEWORD
 	LAYOP XDOES	/ Make new word call part 2
 	LAYOP 0		/ then return
 	LAYOP XPAR	/ Push paramater address
@@ -2133,6 +2136,14 @@ PARADR,	0
 	JMP I PARADR
 
 	PAGE
+MYADR,	0
+	TAD OSP		/ Look who called us
+	DCA T1
+	TAD I T1	/ Get opcode
+	PUSH
+	JMS TOBODY
+	JMP I MYADR
+
 // Runtime for DOES>.  Sets CODE pointer for a new word.
 // Will leave the body address of the word being
 // defined on the stack. This runs as a defining word
