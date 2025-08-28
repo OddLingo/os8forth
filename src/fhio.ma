@@ -2,13 +2,17 @@
 // This module is an interface between the Forth
 // World in Fields 0 and 1 and the OS8 I/O world
 // in Field 2.
-   .NOLIST
-   .INCLUDE COMMON.MA
-   .LIST
+
+/ Get interfaces to the FILEIO package.
+	.NOLIST
+	.INCLUDE COMMON.MA
+	.LIST
 
 	.EXTERNAL TIB, ENGINE
+
 	.XSECT FHIDX
 	FIELD 2
+/ Auto-index pointers for copying things.
 INPTR,	0
 OUTPTR,	0
 
@@ -26,6 +30,7 @@ FLEN,	0
 
 	.DSECT FHBUF
 	FIELD 2
+/ File Information Blocks and buffers.
 FIB1,	.FIB	,,BUF1
 FIB2,	.FIB	,,BUF2
 BUF1=.; *.+400

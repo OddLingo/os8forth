@@ -90,14 +90,14 @@ FTHFLG,	2000	/ Flag for interpreted code
 SBASE,	7200	/ Bottom of data stack
 RBASE,	7400	/ Bottom of return stack
 OBASE,	7500	/ Bottom of opcode stack
-SSIZE,	0177
-RSIZE,	0077
+SSIZE,	0177	/ Data stack gets a full page
+RSIZE,	0077	/ R- and O- stacks are smaller
 
 ASPACE,	40	/ ASCII Space
 NEGZRO,	7720	/ Negative ASCII zero
 LOMEM,	-200	/ Boundary for field 0 references
 MASK6,	0077	/ Sixbit mask
-MASK7,	0177	/ TTI parity mask
+MASK7,	0177	/ ASCII parity mask
 NAMPAD,	0037	/ Padding for names
 WRDPTR,	WRDBUF
 SEEK6,	NAME6	/ Address of sought word
@@ -427,7 +427,6 @@ INVERT,	0
 
 	.SBTTL Input
 
-	PAGE
 	.ENTRY PUT
 PUT,	0
 	TLS			/Output char.
@@ -996,7 +995,6 @@ ISLIT,	0     / Push a literal from dictionary
 	PUSH
 	JMP I SYSCON
 
-	PAGE
 	.SBTTL Memory
 
 // @ Simple fetch ( addr -- n )
@@ -1050,7 +1048,7 @@ LOOP$:	TAD I TEXT1
 	JMP I MOVE
 
 	.SBTTL Stack operations
-
+	PAGE
 OVER,	0		/ ( a b -- a b a )
 	TAD SP
 	IAC
@@ -1144,7 +1142,6 @@ SWAP,	0		/ ( n1 n2 -- n2 n1 )
 
 	.SBTTL Mathematics
 
-	PAGE
 NEGATE,	0		/ Invert a number
 	TAD I SP
 	CIA
@@ -1162,6 +1159,7 @@ MULT$:	0
 	DCA I SP
 	JMP I TIMES
 
+	PAGE
 DIVIDE,	0		/ ( a b -- a/b )
 	TAD I SP
 	DCA DIVSR$
@@ -1713,7 +1711,7 @@ SWITCH,	0		/ Read the console switches
 	PUSH
 	JMP I SWITCH
 
-// Print contents of the stack, top down.
+// Print contents of the stack, bottom to top.
 DOTS,	0
 	JMS DEPTH	/ Calulate how many words
 	TAD I SP
@@ -1722,13 +1720,17 @@ DOTS,	0
 	JMP I DOTS	/ Do nothing if empty.
 	CIA
 	DCA LIMIT$	/ Should be negative count
-	TAD SP
+	STA
+	TAD SBASE	/ Start at bottom
+	TAD SSIZE
 	DCA T2
 LOOP$:	JMS SPACE
 	TAD I T2
 	PUSH
 	JMS DOT
-	ISZ T2
+	STA
+	TAD T2
+	DCA T2
 	ISZ LIMIT$
 	JMP LOOP$
 	JMS CRLF
@@ -2198,6 +2200,39 @@ LOOP$:	DCA I TEXT2	/ Write n words
 	JMP LOOP$
 	JMP I FILL
 
+// PICK ( a b c n -- a b c a )
+PICK,	0
+	TAD I SP
+	POP
+	TAD SP
+	DCA T1
+	TAD I T1
+	PUSH
+	JMP I PICK
+
+// ROLL ( a b c d 2 -- a c d b )
+ROLL,	0
+	TAD I SP	/ Number to shift
+	DCA COUNT
+	JMS PICK	/ a b c d b'
+	TAD SP		/ Pointing at b'
+	TAD COUNT	/ Pointing at c
+	DCA T1
+	TAD COUNT
+	IAC
+	CIA
+	DCA LIMIT	/ -2
+SHUFL$:	TAD I T1	/ Get c
+	ISZ T1
+	DCA I T1	/ Store at old b
+	TAD T1
+	TAD (-2)	/ Back two to get d
+	DCA T1
+	ISZ LIMIT
+	JMP SHUFL$	/ Repeat n times
+	POP 		/ a c d b b Lose extra 'b'
+	JMP I ROLL
+
 	.SBTTL  Built-in word definitions
 
 	.DSECT PREDEF
@@ -2225,6 +2260,8 @@ ZERO,	0	/ For faking a return
 	.ENABLE SIXBIT
 /	.NOLIST
 	B=0
+	TEXT "PICK";	A=.; 2; B; PICK
+	TEXT "ROLL";	B=.; 2; A; ROLL
 	TEXT "(PAR";	XPAR=.; 2; B; PARADR
 	TEXT ">BODY_";	XBODY=.; 3; XPAR; TOBODY
 	TEXT "FILL";	A=.; 2; XBODY; FILL
