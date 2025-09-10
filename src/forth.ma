@@ -1,9 +1,7 @@
 	.TITLE FORTH interpreter for PDP-8
 	.SBTTL Page zero
 
-	.NOLIST
-
-	.LIST
+	.LIST  MEB
 
 / These are macros so that bounds checking can be
 / added if required.
@@ -18,6 +16,15 @@
 	.MACRO LAYOP OP
 	JMS LAYLIT
 	OP
+	.ENDM
+
+/ Lay down a FORWARD jump, to be resolved later
+/ by FIXFWD.
+	.MACRO LAYFWD TYPE
+	JMS LAYLIT
+	.IF NB TYPE <TYPE>
+	.IF BL TYPE <XJMP>
+	JMS MARKFJ
 	.ENDM
 
 / All machine code is in Field zero so IF register
@@ -317,7 +324,7 @@ WLOOP$:	TAD INOFF
 	TAD I SP
 	POP		/ Execution token is at TOS
 	SNA		/ Found it?
-	JMP NUMCK$	/ Undefined word or it is a number
+	JMP NUMCK$	/ Undefined word or number
 	CLA
 	TAD STATE	/ Compiling or interpreting?
 	SZA
@@ -345,7 +352,7 @@ IMM$:	CLA		/ Execute now
 PREND$:	POP
 END$:	CLA
 	TAD STATE	/ All done, display prompt.
-	SZA
+	SZA CLA
 	JMP LLOOP$	/ Get another line
 	JMS MSG
 	TEXT \ OK\
@@ -579,7 +586,7 @@ INLEN$:	0		/ len
 
 	/ Reading from a file instead
 FILE$:	PUSH		/ File id on stack
-	/ Stack: id len addr
+	/ Stack: addr len id
 	JMS FILRDL	/ Read a line
 	/ Stack: iot flag len
 	TAD I SP	/ Check status. Zero is OK
@@ -1493,37 +1500,40 @@ POP$:	POP
 	PAGE
 	.SBTTL Flow control
 
-MARKFU,	0		/ Record a fixup location
+/ Mark a FOWARD jump location on the stack,
+/ be be fixed up by FIXFWD later.
+MARKFJ,	0
 	TAD HERE
 	PUSH
-	JMS LAYLIT
-	0
-	JMP I MARKFU
+	LAYOP 0
+	JMP I MARKFJ
 
 GENIF,	0
-	LAYOP XJMPF
-	JMS MARKFU	/ Fixup to ELSE or THEN
+	LAYFWD XJMPF	/ Fixup to ELSE or THEN
 	JMP I GENIF
 
-FIXUP,	0		/ Fixup a previous jump
+/ Fix up a FORWARD jump. The jump offset on the
+/ stack is set to point to HERE.
+FIXFWD,	0
 	TAD I SP	/ Get place needing fixup
 	POP
+	SNA
+	JMP I FIXFWD	/ No fixup there
 	DCA T1
 	TAD T1	/ Compute difference
 	CIA
 	TAD HERE
 	DCA I T1	/ Point it to HERE
-	JMP I FIXUP
+	JMP I FIXFWD
 
 GENELS,	0		/ Compile ELSE
-	LAYOP XJMP
-	JMS MARKFU
+	LAYFWD
 	JMS SWAP
-	JMS FIXUP
+	JMS FIXFWD
 	JMP I GENELS
 
 GENTHN,	0		/ Compile THEN that resolves IF
-	JMS FIXUP
+	JMS FIXFWD
 	JMP I GENTHN
 
 JUMP,	0		/ Adjust IP by a signed constant
@@ -1548,12 +1558,11 @@ YES$:	CLA		/ True so do the adjustment
 JUMPF,	0		/ Adjust IP if TOS false
 	TAD I SP
 	POP
-	SNA
-	JMP YES$
+	SNA CLA
+	JMP YES$	/ False, adjust the IP
 	ISZ IP		/ True so skip the adjustment
 	JMP I JUMPF
-YES$:	CLA		/ false so do the adjustment
-	TAD I IP	/ Get adjustment
+YES$:	TAD I IP	/ Get adjustment
 	TAD IP		/ Add to old IP
 	DCA IP		/ Save it
 	JMP I JUMPF
@@ -2083,7 +2092,7 @@ ABTQ,	0	/ ABORT"
 	JMS GENIF
 	JMS DQUOT
 	LAYOP XABORT
-	JMS FIXUP
+	JMS FIXFWD
 	JMP I ABTQ
 
 // CHAR: Parse a character and push it
@@ -2233,6 +2242,45 @@ SHUFL$:	TAD I T1	/ Get c
 	POP 		/ a c d b b Lose extra 'b'
 	JMP I ROLL
 
+// CASE ( val -- ) The first OF clause does not need
+// to resolve a JUMP, so we put a zero on the stack.
+GENCAS,	0
+	PUSH		/ Zero fixup marker
+	JMP I GENCAS
+
+// Compile time OF ( ref val -- ref ) Resolve
+// previous FALSE jump, if any, and make next test.
+GENOF,	0
+	LAYFWD XOF	/ Lay compare-and-jump op
+	JMP I GENOF
+
+// Runtime for OF.  Execute the test and jump around
+// the body if false.
+DOOF,	0
+	JMS COMP	/ Compare top two
+	SNA CLA
+	JMP NOJ$
+	JMS JUMP
+	JMP I DOOF
+NOJ$:	ISZ IP
+	JMP I DOOF
+
+// ENDOF Create JUMP from TRUE branch to ENDCASE,
+// then resolve previous FALSE branch.
+GENEOF,	0
+	JMS SWAP	/ Bring TRUE jump to top
+	JMS FIXFWD	/ Chain previous to this
+	LAYFWD		/ Make this TRUE jump
+	JMS SWAP	/ Go back for OF-FALSE
+	JMS FIXFWD	/ Make it jump here
+	JMP I GENEOF
+
+// ENDCASE.  The last failed OF jumps here.
+GENEC,	0
+	JMS FIXFWD
+	LAYOP XDROP
+	JMP I GENEC
+
 	.SBTTL  Built-in word definitions
 
 	.DSECT PREDEF
@@ -2259,7 +2307,12 @@ ZERO,	0	/ For faking a return
 	.DISABLE FILL
 	.ENABLE SIXBIT
 /	.NOLIST
-	B=0
+	A=0
+	TEXT "(OF)";	XOF=.; 2; A; DOOF
+	TEXT "ENDCASE_";A=.; 4004; XOF; GENEC
+	TEXT "ENDOF_";	B=.; 4003; A; GENEOF
+	TEXT "CASE";	A=.; 4002; B; GENCAS
+	TEXT "OF";	B=.; 4001; A; GENOF
 	TEXT "PICK";	A=.; 2; B; PICK
 	TEXT "ROLL";	B=.; 2; A; ROLL
 	TEXT "(PAR";	XPAR=.; 2; B; PARADR
