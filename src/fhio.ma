@@ -198,6 +198,11 @@ FHOPEN,	0
 	TAD THEFIB+BUFADR	/ Parse it
 	JMS $FPARSE
 	JMS GETHDL	/ Make sure handler loaded
+	/ $FILEIO returns status in AC:
+	/   =0	  Sucess
+	/   >=0	  FILE NOT FOUND. NEW FILE CREATED.
+	/   <0	  FATAL DEVICE ERROR
+
 	JMS $FILEIO	/ Open the file
 	2
 	SBFILE		/ SB name pointer
@@ -207,7 +212,7 @@ FHOPEN,	0
 
 	TAD FIBNUM	/ Return id number
 	MQL
-	CLA IAC		/ And ok status
+	CLA		/ And ok status
 	CDF TIB
 	CIF ENGINE
 	JMP I FHOPEN

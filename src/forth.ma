@@ -161,13 +161,9 @@ INIT,	IOF		/ No interrupts
 	KCC		/ Clear device flags
 	TCF
 	CDF TIB	/ Indirect references to F1
-	JMS AVAIL	/ Print available memory
-	JMS DOT
-	JMS MSG
-	TEXT \ AVAIL\
-	JMS CRLF
-	JMS MSG
-	TEXT \> \
+	TAD (XINIT)
+	PUSH
+	JMS DOEXEC
 	JMS QUIT
 	HLT	
 
@@ -292,7 +288,8 @@ STOP,	JMS CRLF
 //    has been completed, and no ambiguous condition
 //    exists.
 QUIT,	0
-	JMS RESET	/ Initialize the engine
+	JMS MSG
+	TEXT \> \
 LLOOP$:	TAD TIBPTR	/ Read a line
 	PUSH
 	TAD TIBLEN	/ Max length
@@ -351,10 +348,13 @@ IMM$:	CLA		/ Execute now
 
 PREND$:	POP
 END$:	CLA
-	TAD STATE	/ All done, display prompt.
+	TAD STATE	/ All done, compiling?
 	SZA CLA
-	JMP LLOOP$	/ Get another line
-	JMS MSG
+	JMP LLOOP$	/ Yes, get another line
+	TAD SOURCE	/ Reading a file?
+	SZA CLA
+	JMP LLOOP$	/ Yes, get another line
+	JMS MSG		/ No, say "OK".
 	TEXT \ OK\
 	JMS CRLF
 	JMP LLOOP$	/ Get another line
@@ -1218,17 +1218,18 @@ MINUS,	0		/ ( a b -- a-b )
 	DCA I SP
 	JMP I MINUS
 
+// ' gets xt of following word, or zero if
+// no such word exists.
 TICK,	0
 	JMS BL
 	JMS WORD
 	TAD I WRDPTR
-	SNA
-	HLT
+	SNA CLA
+	JMP NOPE$
 	JMS FIND
-	TAD I SP
-	SNA
-	HLT
 	POP
+	JMP I TICK
+NOPE$:	PUSH
 	JMP I TICK
 
 / Bitwise left shift   ( a b -- a<b )
@@ -1937,10 +1938,11 @@ FILOPN,	0
 	/ Point at filename string
 	JMS SETSTR  / Load MQ,AC from stack
 	CIF FHOPEN; JMS FHOPEN	/ Call OS8 interface
-	/ AC is fileid, MQ is status
+	/ MQ is fileid, AC is status
 	PUSH
 	MQA
 	PUSH
+	JMS SWAP	/ Put status on top
 	JMP I FILOPN
 
 SETSTR,	0	/ Describe a counted string
@@ -2281,6 +2283,42 @@ GENEC,	0
 	LAYOP XDROP
 	JMP I GENEC
 
+SPACES,	0
+	TAD I SP
+	CIA
+	DCA LIMIT
+LOOP$:	JMS SPACE
+	ISZ LIMIT
+	JMP LOOP$
+	JMP I SPACES
+
+	PAGE
+FORGET,	0
+	JMS BL		/ Push Space delimiter
+	JMS WORD	/ Get next word, caddr on stack
+	TAD I WRDPTR	/ Get anything?
+	SNA
+	JMP I FORGET	/ No
+	JMS FIND	/ caddr 0 | xt 1 | xt -1
+	TAD I SP
+	POP		/ Execution token is at TOS
+	SNA CLA
+	JMP I FORGET	/ Not found
+	TAD I SP	/ Get token of word to forget
+	POP
+	DCA T1
+	TAD I T1	/ Head length
+	AND LENMSK
+	CIA		/ Back over the name
+	TAD T1
+	DCA HERE	/ Set freespace start
+	TAD T1
+	IAC		/ Address of Link word
+	DCA T1
+	TAD I T1	/ Get previous
+	DCA DICT	/ Make precediing word the top.
+	JMP I FORGET
+
 	.SBTTL  Built-in word definitions
 
 	.DSECT PREDEF
@@ -2308,6 +2346,19 @@ ZERO,	0	/ For faking a return
 	.ENABLE SIXBIT
 /	.NOLIST
 	A=0
+	TEXT "FORGET"; B=.; 3; A; FORGET
+	TEXT "INIT"; XINIT=.; 2002; B; .+1
+	.ENABLE ASCII
+	  XSTR; 7; TEXT "INIT.FS"; XLOAD; 0
+	.ENABLE SIXBIT
+	TEXT "LOAD";	XLOAD=.; 2002; XINIT; .+1
+	  XLIT; 0; XOPEN; XJMPF; 16; XSTR
+	  .ENABLE ASCII
+	  7; TEXT "NO INIT"
+	  XTYPE; XDROP; XJMP; 2; XINCL; 0
+	  .ENABLE SIXBIT
+	TEXT "SPACES";	B=.; 3; XLOAD; SPACES
+	TEXT "DICT";	A=.; 2; B; SYSCON; DICT
 	TEXT "(OF)";	XOF=.; 2; A; DOOF
 	TEXT "ENDCASE_";A=.; 4004; XOF; GENEC
 	TEXT "ENDOF_";	B=.; 4003; A; GENEOF
@@ -2331,8 +2382,8 @@ ZERO,	0	/ For faking a return
 	TEXT "2@";	B=.; 1; A; FETCH2
 	TEXT "2!";	A=.; 1; B; STORE2
 	TEXT "SOURCE-ID_"; B=.; 5; A; SYSCON; SOURCE
-	TEXT "INCLUDE-FILE"; A=.; 6; B; FILINC
-	TEXT "FLUSH-FILE"; B=.; 5; A; FILFLU 
+	TEXT "INCLUDE-FILE"; XINCL=.; 6; B; FILINC
+	TEXT "FLUSH-FILE"; B=.; 5; XINCL; FILFLU 
 	TEXT "CREATE-FILE_"; A=.; 6; B; FILCRE 
 // Terminal Buffers 80 chars each
 	TEXT "TIB_";   B=.; 2; A; DOVAR
@@ -2354,9 +2405,9 @@ TIB,	*.+120
 	   XGENOP; XPOPR; XGENOP; X2DROP; 0
 	TEXT "LSHIFT";	A=.; 3; B; LSHIFT
 	TEXT "RSHIFT";	B=.; 3; A; RSHIFT
-	TEXT "OPEN-FILE_"; A=.; 5; B; FILOPN
-	TEXT "CLOSE-FILE"; B=.; 5; A; FILCLS
-	TEXT "READ-FILE_"; A=.; 5; B; FILRD
+	TEXT "OPEN-FILE_"; XOPEN=.; 5; B; FILOPN
+	TEXT "CLOSE-FILE"; XCLOSE=.; 5; XOPEN; FILCLS
+	TEXT "READ-FILE_"; A=.; 5; XCLOSE; FILRD
 	TEXT "READ-LINE_"; B=.; 5; A; FILRDL
 	TEXT "WRITE-FILE"; A=.; 5; B; FILWR
 	TEXT "WRITE-LINE"; B=.; 5; A; FILWRL
