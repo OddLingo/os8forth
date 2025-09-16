@@ -18,6 +18,13 @@
 	OP
 	.ENDM
 
+	.MACRO ERROR TYPE
+	JMS RECOVR
+	.DISABLE FILL
+	.ENABLE SIXBIT
+	TEXT \TYPE\
+	.ENDM
+
 / Lay down a FORWARD jump, to be resolved later
 / by FIXFWD.
 	.MACRO LAYFWD TYPE
@@ -89,6 +96,8 @@ INOFF,	0	/ >IN offset in characters from the
 LINLEN,	0	/ # of characters in TIB
 
 /// Shared constants
+    	.ENABLE 7BIT
+NEGQ,	-""	/ Terminating quote
 LENMSK,	17	/ Length mask in dictonary header
 IMMFLG,	4000	/ Flag to execute during compilation
 FTHFLG,	2000	/ Flag for interpreted code
@@ -156,15 +165,14 @@ LAYDN,	0
 	.START .
 INIT,	IOF		/ No interrupts
 	CLA 
-	DCA SOURCE	/ Start in Console mode
-	JMS RESET	/ Init stacks
+	JMS RESET	/ Init everything
 	KCC		/ Clear device flags
 	TCF
 	CDF TIB	/ Indirect references to F1
-	TAD (XINIT)
+	TAD (XINIT)	/ Run INIT word
 	PUSH
 	JMS DOEXEC
-	JMS QUIT
+RESUME,	JMS QUIT	/ Start interpreter
 	HLT	
 
 BYE,	0		/ Exit to OS/8
@@ -421,11 +429,11 @@ INTNOW,	0     / [ Interpret inside definition
 	DCA STATE
 	JMP I INTNOW
 
+	PAGE
 CMPNOW,	0     / ] Resume compiling
 	ISZ STATE
 	JMP I CMPNOW
 
-	PAGE
 INVERT,	0
 	TAD I SP
 	CMA
@@ -636,16 +644,27 @@ LOOP$:	CDF .		/ We can indirect through MSG
 	ISZ MSG		/ Advance over
 	SNA
 	JMP I MSG	/ Oops, zero so stop
-	DCA T1
-	TAD T1
+	DCA CHAR
+	TAD CHAR
 	BSW
 	JMS P1SIX
-	TAD T1		/ Do right half
+	TAD CHAR	/ Do right half
 	AND MASK6
 	SNA
 	JMP I MSG	/ Oops, zero
 	JMS P1SIX
 	JMP LOOP$
+
+P2SIX,	0		/ Print one word of SIXBIT
+	TAD CHAR
+	BSW
+	JMS P1SIX
+	TAD CHAR	/ Do right half
+	AND MASK6
+	SNA
+	JMP I P2SIX	/ Oops, zero
+	JMS P1SIX
+	JMP I P2SIX
 
 P1SIX,	0		/ Print 6b char in AC
 	AND MASK6
@@ -864,7 +883,6 @@ MODBY$:	0
 // Compile a literal string inline.  This is a simpler
 // version of WORD.
    .ENABLE 7BIT
-NEGQ,	-""		/ Terminating quote
 LITSTR,	0
 	TAD HERE
 	DCA T1		/ Remember where length goes
@@ -1202,6 +1220,7 @@ ONEP,	0		/ ( n -- n+1 )
 	JMP I ONEP
 
 PLUS,	0		/ ( a b -- a+b )
+	ERROR PL
 	TAD I SP
 	DCA T1
 	POP
@@ -2319,6 +2338,67 @@ FORGET,	0
 	DCA DICT	/ Make precediing word the top.
 	JMP I FORGET
 
+// Compile a literal SIXBIT string inline.
+QUOT6,	0
+	LAYOP XSTR
+	TAD HERE
+	DCA T1		/ Remember where length goes
+	JMS LAYDN	/ Save space for length
+	TAD HERE
+	JMS A6INIT	/ Init SIXBIT packing
+LOOP$:	JMS NXTIN
+	TAD I SP
+	DCA CHAR
+	POP
+	TAD CHAR	/ Check for terminating quote
+	TAD NEGQ
+	SNA CLA
+	JMP DONE$
+	TAD CHAR	/ Not quote so pack it
+	JMS A6ADD
+	ISZ COUNT
+	JMP LOOP$	/ Go back for more
+DONE$:	JMS A6DONE	/ Fixup the length
+	DCA I T1
+	TAD I T1	/ Also adjust HERE
+	TAD HERE
+	IAC
+	DCA HERE
+	JMP I QUOT6
+
+// .6 Type a sixbit string
+TYPE6,	0
+	TAD I SP	/ Get word count
+	POP
+	CIA
+	DCA LIMIT
+	TAD I SP	/ Get start address
+	DCA T1
+LOOP$:	TAD I T1
+	BSW		/ Print left half
+	JMS P1SIX
+	TAD I T1	/ Do right half
+	AND MASK6
+	JMS P1SIX
+	ISZ T1
+	ISZ LIMIT
+	JMP LOOP$
+	JMP I TYPE6
+
+// Report an error and restart.
+RECOVR,	0
+	JMS RESET	/ Put world in known state
+	JMS MSG		/ Announce error
+	.ENABLE SIXBIT,FILL
+	TEXT "?ERROR "
+	CDF .
+	TAD I RECOVR	/ 2-char code
+	CDF TIB
+	DCA CHAR
+	JMS P2SIX
+	JMS CRLF
+	JMP RESUME
+
 	.SBTTL  Built-in word definitions
 
 	.DSECT PREDEF
@@ -2508,10 +2588,12 @@ TIB,	*.+120
 	TEXT "CMOVE_";	A=.; 3; B; MOVE
 	TEXT "OVER";	B=.; 2; A; OVER
 	TEXT "._";	A=.; 1; B; DOT
-	TEXT "AVAIL_";	   B=.; 3; A; AVAIL
+	TEXT "AVAIL_";	B=.; 3; A; AVAIL
 	TEXT ">IN_";	A=.; 2; B; SYSVAR; INOFF
 	TEXT "SWITCH";	B=.; 3; A; SWITCH
 	TEXT "NEGATE";	A=.; 3; B; NEGATE
+	TEXT \6"\;	B=.; 4001; A; QUOT6
+	TEXT "TYPE6_";	A=.; 3; B; TYPE6
 	TEXT \S"\;	B=.; 4001; A; SQUOT
 	TEXT \."\;	A=.; 4001; B; DQUOT
 	TEXT "SPACE_";	B=.; 3; A; SPACE
