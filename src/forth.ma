@@ -1196,6 +1196,7 @@ DIVSR$:	0
 	DCA I SP
 	JMP I DIVIDE
 
+// Multiply then divide with 24-bit intermediary.
 MULDIV,	0		/ ( a b c -- a*b/c )
 	TAD I SP
 	DCA MD2$
@@ -1220,7 +1221,6 @@ ONEP,	0		/ ( n -- n+1 )
 	JMP I ONEP
 
 PLUS,	0		/ ( a b -- a+b )
-	ERROR PL
 	TAD I SP
 	DCA T1
 	POP
@@ -1685,19 +1685,12 @@ LOOP$:	TAD I TEXT1	/ Examine next char
 	PUSH	/ Push remaining count
 	JMP I GETNUM
 
-BADNM$:	JMS UNDEF
-	JMS MSG; TEXT \GETNUM FAIL\
-	JMP I GETNUM
+BADNM$:	ERROR NF
 
 / Report undefined word
 UNDEF,	0
-	JMS MSG
-	TEXT \ ?UNDEF '\
 	JMS PSEEK
-	TAD ("'
-	JMS PUT
-	JMS CRLF
-	JMP I UNDEF
+	ERROR UD
 
 // Print the sought-after word
 PSEEK,	0
@@ -1813,7 +1806,7 @@ BUMP$:	ISZ CURENT	/ Find link word
 PNAME,	0
 	TAD I CURENT
 	SNA
-	HLT		/ Trying to print missing entry
+	ERROR ME	/ Trying to print missing entry
 	AND LENMSK	/ Words in the name are limit
 	CIA
 	DCA LIMIT
@@ -2362,7 +2355,6 @@ DONE$:	JMS A6DONE	/ Fixup the length
 	DCA I T1
 	TAD I T1	/ Also adjust HERE
 	TAD HERE
-	IAC
 	DCA HERE
 	JMP I QUOT6
 
