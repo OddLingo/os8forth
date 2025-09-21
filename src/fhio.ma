@@ -206,7 +206,7 @@ FHOPEN,	0
 	JMS $FILEIO	/ Open the file
 	2
 	SBFILE		/ SB name pointer
-	HLT
+	JMP FAIL$
 
 	JMS RSTFIB	/ Update our copy
 
@@ -217,7 +217,7 @@ FHOPEN,	0
 	CIF ENGINE
 	JMP I FHOPEN
 
-FAIL$:	CLA
+FAIL$:	CLA IAC
 	JMP .-4
 
 // Create file. Filename ptr in AC, length in MQ.

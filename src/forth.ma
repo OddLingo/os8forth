@@ -80,10 +80,10 @@ TEXT4,	0
 NEWORD,	0	/ Word being built
 COUNT,	0	/ Counting up from zero
 LIMIT,	0	/ Size of a buffer, up to zero
-TOS,	0	/top of stack value
+TOS,	0	/ top of stack value
 T1,	0
 T2,	0
-DPTR,	0	/address of current dictionary word
+DPTR,	0	/ address of current dictionary word
 CPTR,	0	/ Address of code pointer
 CHAR,	0	/ latest character read
 CURENT,	0	/ Current executing word
@@ -1406,6 +1406,13 @@ BL,	0		/ Push a space
 	PUSH
 	JMP I BL
 
+FIXBAC,	0   / Fixup a backwards jump
+	TAD HERE
+	CIA
+	TAD I SP
+	DCA I HERE
+	JMP I FIXBAC
+
 	.SBTTL Parsing input
 
 	PAGE
@@ -1702,7 +1709,96 @@ PSEEK,	0
 	JMS TYPE
 	JMP I PSEEK
 
+LPIDX,	0		/ Value of inner loop variable
+	TAD I RSP
+	PUSH
+	JMP I LPIDX
+
+LPJDX,	0     / Value of outer loop variable
+	TAD RSP
+	IAC
+	DCA T1
+	TAD I T1
+	PUSH
+	JMP I LPJDX
+
+GENDO,	0
+	LAYOP XTOR
+	PUSH		/ Zero the LEAVE chain
+	TAD HERE	/ Remember top of loop
+	PUSH		/ for later fixup
+	JMP I GENDO
+
+// +LOOP Generate the bottom of a modified LOOP
+GPLOOP,	0
+	TAD GPLOOP	/ Steal return address
+	DCA GLOOP
+	LAYOP XLPPBO	/ Lay down alternate head
+	JMP GBOT	/ The rest is like LOOP
+
+// LOOP - Generate the bottom of a DO-LOOP. This
+// lays down the (LP) operation and then resolves
+// any LEAVEs.
+GLOOP,	0
+	LAYOP XLPBOT
+GBOT,	TAD HERE	/ Compute jump distance
+	CIA
+	TAD I SP
+	POP
+	JMS LAYDN	/ Set jump back offset
+	TAD I SP	/ Fixup LEAVEs
+	DCA T1
+FIXLP$:	TAD T1		/ Addr of place to fix
+	SNA
+	JMP LAYFX$	/ No more
+	DCA T2		/ Save next in chain
+	TAD I T2
+	DCA T2
+	TAD T1		/ Distance to jump
+	CIA
+	TAD HERE
+	DCA I T1	/ Adjust the jump
+	TAD T2
+	DCA T1
+	JMP FIXLP$
+LAYFX$:	LAYOP XLPXIT
+	POP
+	JMP I GLOOP
+
+BOTLPP,	0     / Bottom of +LOOP
+	TAD BOTLPP     / Steal code in BOTLP
+	DCA BOTLP
+	TAD I SP
+	POP
+	JMP SETI
+
 	PAGE
+// Processing at the bottom of a loop.
+// R@ 1+ R! DUP R@ >= JMPT (HERE -) R> 2DROP 
+BOTLP,	0
+	TAD I RSP	/ Increment loop variable
+	IAC
+SETI,	DCA I RSP
+	TAD I RSP	/ Check against limit
+	CIA
+	TAD I SP
+	SZA CLA
+	JMP BACK$	/ Not yet
+	ISZ IP		/ Skip the address
+	JMP I BOTLP	/ LPXIT will clean up
+BACK$:	TAD I IP	/ Jump to top of loop
+	TAD IP
+	DCA IP
+	JMP I BOTLP
+
+// Cleanup at the exit of a LOOP for any reason.
+// Pop loop index from Rstack and limit value
+// from data stack.
+LPXIT,	0
+	ISZ RSP
+	POP
+	JMP I LPXIT
+
 NEGNIN,	7703
 
 SKPNUM,	0		/ Skip if CHAR is numeric
@@ -1719,11 +1815,6 @@ SKPNUM,	0		/ Skip if CHAR is numeric
 NOT$:	CLA
 	JMP I SKPNUM
 	
-LPIDX,	0		/ Value of inner loop variable
-	TAD I RSP
-	PUSH
-	JMP I LPIDX
-
 LPEND,	0
 	ISZ RSP
 	HLT	//??
@@ -1800,6 +1891,7 @@ BUMP$:	ISZ CURENT	/ Find link word
 	DCA CURENT
 	JMP LOOP$
 
+	PAGE
 // Print a counted name in the dictionary.
 // Zero is allowed because that is "@". CURENT
 // points to the current executing word.
@@ -2358,6 +2450,12 @@ DONE$:	JMS A6DONE	/ Fixup the length
 	DCA HERE
 	JMP I QUOT6
 
+// .6" Type the following SIXBIT string
+DQUOT6,	0
+	JMS QUOT6
+	LAYOP XTYP6
+	JMP I DQUOT6
+
 // .6 Type a sixbit string
 TYPE6,	0
 	TAD I SP	/ Get word count
@@ -2367,10 +2465,14 @@ TYPE6,	0
 	TAD I SP	/ Get start address
 	DCA T1
 LOOP$:	TAD I T1
+	SNA
+	JMP I TYPE6
 	BSW		/ Print left half
 	JMS P1SIX
 	TAD I T1	/ Do right half
 	AND MASK6
+	SNA
+	JMP I TYPE6	/ Stop at zero
 	JMS P1SIX
 	ISZ T1
 	ISZ LIMIT
@@ -2390,6 +2492,11 @@ RECOVR,	0
 	JMS P2SIX
 	JMS CRLF
 	JMP RESUME
+
+// EXIT a zero opcode means return from word.
+EXIT,	0
+	LAYOP 0
+	JMP I EXIT
 
 	.SBTTL  Built-in word definitions
 
@@ -2417,7 +2524,13 @@ ZERO,	0	/ For faking a return
 	.DISABLE FILL
 	.ENABLE SIXBIT
 /	.NOLIST
-	A=0
+	B=0
+	TEXT "(L+)";	XLPPBO=.; 2; B; BOTLPP
+	TEXT "(LX)";	XLPXIT=.; 2; XLPPBO; LPXIT
+	TEXT "(LP)";	XLPBOT=.; 2; XLPXIT; BOTLP
+	TEXT "J_";	A=.; 1; B; LPJDX
+	TEXT "EXIT"; B=.; 4002; A; EXIT
+	TEXT \.6"_\; A=.; 4002; B; DQUOT6
 	TEXT "FORGET"; B=.; 3; A; FORGET
 	TEXT "INIT"; XINIT=.; 2002; B; .+1
 	.ENABLE ASCII
@@ -2468,13 +2581,7 @@ TIB,	*.+120
 	TEXT "[_";	A=.; 4001; B; INTNOW
 	TEXT "]_";	B=.; 1; A; CMPNOW
 	TEXT "INVERT";	A=.; 3; B; INVERT
-	TEXT "+LOOP_";	B=.; 6003; A; 0
-	 / R@ + R! DUP R@ >= JMPT (HERE -) R> 2DROP 
-	   XGENOP; XFETR; XGENOP; XPLUS; XGENOP; XRSTOR
-	   XGENOP; XDUP;
-	   XGENOP; XFETR; XGENOP; XGEQ; XGENOP; XJMPT
-	   XHERE; XMINUS; XCOMA
-	   XGENOP; XPOPR; XGENOP; X2DROP; 0
+	TEXT "+LOOP_";	B=.; 4003; A; GPLOOP
 	TEXT "LSHIFT";	A=.; 3; B; LSHIFT
 	TEXT "RSHIFT";	B=.; 3; A; RSHIFT
 	TEXT "OPEN-FILE_"; XOPEN=.; 5; B; FILOPN
@@ -2521,16 +2628,8 @@ TIB,	*.+120
 	   XHERE; 0
 	TEXT "UNTIL_"; B=.; 6003; A; 0
 	   XGENOP; XJMPF; XHERE; XMINUS; XCOMA; 0
-	TEXT "DO"; A=.; 6001; B; 0
-	   XGENOP; XTOR;
-	   XHERE; 0
-	TEXT "LOOP"; B=.; 6002; A; 0
-	 / R@ 1+ R! DUP R@ >= JMPT (HERE -) R> 2DROP 
-	   XGENOP; XFETR; XGENOP; X1PLUS; XGENOP; XRSTOR
-	   XGENOP; XDUP;
-	   XGENOP; XFETR; XGENOP; XGEQ; XGENOP; XJMPT
-	   XHERE; XMINUS; XCOMA
-	   XGENOP; XPOPR; XGENOP; X2DROP; 0
+	TEXT "DO"; A=.; 4001; B; GENDO
+	TEXT "LOOP"; B=.; 4002; A; GLOOP
 	TEXT "IMMEDIATE_";A=.; 5; B; MAKIMM
 	TEXT "'_";	B=.;	1; A; TICK
 	TEXT "DEPTH_";	A=.;	3; B; DEPTH
@@ -2585,8 +2684,8 @@ TIB,	*.+120
 	TEXT "SWITCH";	B=.; 3; A; SWITCH
 	TEXT "NEGATE";	A=.; 3; B; NEGATE
 	TEXT \6"\;	B=.; 4001; A; QUOT6
-	TEXT "TYPE6_";	A=.; 3; B; TYPE6
-	TEXT \S"\;	B=.; 4001; A; SQUOT
+	TEXT "TYPE6_";	XTYP6=.; 3; B; TYPE6
+	TEXT \S"\;	B=.; 4001; XTYP6; SQUOT
 	TEXT \."\;	A=.; 4001; B; DQUOT
 	TEXT "SPACE_";	B=.; 3; A; SPACE
 	TEXT ".S";	A=.; 1; B; DOTS

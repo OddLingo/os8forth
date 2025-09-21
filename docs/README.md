@@ -39,9 +39,11 @@ The following FORTH words are extensions to the FORTH Standard to gain access to
 
 * **SWITCH** ( -- n ) puts the PDP-8 switch settings on the stack.
 
-* **6"** Works like `S"` but codes the string in SIXBIT.
+* **6"** Works like `S"` but codes the string in SIXBIT, using half the memory but converting to uppercase.
 
 * **TYPE6** ( addr len -- ) Same as `TYPE` but takes a SIXBIT string.  The *length* is in words, not characters.
+
+* **.6"** Similar to `."` but uses SIXBIT storage. 
 
 ## Building
 The MACREL/LINK relocatable assembler and linker are used.  A BATCH file FORTH.BI is provided that puts everything together.
