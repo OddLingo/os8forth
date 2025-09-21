@@ -2463,6 +2463,7 @@ TYPE6,	0
 	CIA
 	DCA LIMIT
 	TAD I SP	/ Get start address
+	POP
 	DCA T1
 LOOP$:	TAD I T1
 	SNA
