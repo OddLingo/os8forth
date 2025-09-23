@@ -9,6 +9,10 @@
 	JMS PUSHS
 	.ENDM
 
+	.MACRO PUSHR
+	JMS PUSHRS
+	.ENDM
+
 	.MACRO POP
 	ISZ SP
 	.ENDM
@@ -1736,9 +1740,10 @@ GPLOOP,	0
 	LAYOP XLPPBO	/ Lay down alternate head
 	JMP GBOT	/ The rest is like LOOP
 
-// LOOP - Generate the bottom of a DO-LOOP. This
-// lays down the (LP) operation and then resolves
-// any LEAVEs.
+// Compile LOOP - Generate the bottom of a DO-LOOP.
+// This lays down the runtime (LP) operation,
+// resolves any LEAVEs, then lays down the Loop Exit
+// (LX) operation.
 GLOOP,	0
 	LAYOP XLPBOT
 GBOT,	TAD HERE	/ Compute jump distance
@@ -1760,7 +1765,8 @@ FIXLP$:	TAD T1		/ Addr of place to fix
 	DCA I T1	/ Adjust the jump
 	TAD T2
 	DCA T1
-	JMP FIXLP$
+	JMP FIXLP$	/ Check another
+	/ Fixed up LEAVEs will jump here.
 LAYFX$:	LAYOP XLPXIT
 	POP
 	JMP I GLOOP
@@ -2494,6 +2500,22 @@ RECOVR,	0
 	JMS CRLF
 	JMP RESUME
 
+// LEAVE becomes an unconditional jump that is
+// part of a chain of jumps to the end of a loop.
+// These get fixed up in GLOOP.
+GENLV,	0
+	LAYOP XJMP
+	TAD HERE
+	DCA T1
+	TAD SP		/ Find the chain
+	IAC
+	DCA T2
+	TAD I T2	/ Get prev LEAVE
+	JMS LAYDN
+	TAD T1
+	DCA I T2	/ Link LEAVE chain
+	JMP I GENLV
+
 // EXIT a zero opcode means return from word.
 EXIT,	0
 	LAYOP 0
@@ -2525,7 +2547,8 @@ ZERO,	0	/ For faking a return
 	.DISABLE FILL
 	.ENABLE SIXBIT
 /	.NOLIST
-	B=0
+	A=0
+	TEXT "LEAVE_";	B=.; 4003; A; GENLV 
 	TEXT "(L+)";	XLPPBO=.; 2; B; BOTLPP
 	TEXT "(LX)";	XLPXIT=.; 2; XLPPBO; LPXIT
 	TEXT "(LP)";	XLPBOT=.; 2; XLPXIT; BOTLP
