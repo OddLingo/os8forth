@@ -9,7 +9,7 @@
 	JMS PUSHS
 	.ENDM
 
-	.MACRO PUSHR
+	.MACRO RPUSH
 	JMS PUSHRS
 	.ENDM
 
@@ -1728,7 +1728,7 @@ LPJDX,	0     / Value of outer loop variable
 
 GENDO,	0
 	LAYOP XTOR
-	PUSH		/ Zero the LEAVE chain
+	RPUSH		/ Zero the LEAVE chain
 	TAD HERE	/ Remember top of loop
 	PUSH		/ for later fixup
 	JMP I GENDO
@@ -1751,7 +1751,7 @@ GBOT,	TAD HERE	/ Compute jump distance
 	TAD I SP
 	POP
 	JMS LAYDN	/ Set jump back offset
-	TAD I SP	/ Fixup LEAVEs
+	TAD I RSP	/ Fixup LEAVEs
 	DCA T1
 FIXLP$:	TAD T1		/ Addr of place to fix
 	SNA
@@ -1768,7 +1768,8 @@ FIXLP$:	TAD T1		/ Addr of place to fix
 	JMP FIXLP$	/ Check another
 	/ Fixed up LEAVEs will jump here.
 LAYFX$:	LAYOP XLPXIT
-	POP
+/	POP
+	ISZ RSP		/ Don't need LEAVE chain
 	JMP I GLOOP
 
 BOTLPP,	0     / Bottom of +LOOP
@@ -2506,14 +2507,11 @@ RECOVR,	0
 GENLV,	0
 	LAYOP XJMP
 	TAD HERE
-	DCA T1
-	TAD SP		/ Find the chain
-	IAC
-	DCA T2
-	TAD I T2	/ Get prev LEAVE
+	DCA T1		/ Place to be fixed
+	TAD I RSP	/ Find the chain
 	JMS LAYDN
 	TAD T1
-	DCA I T2	/ Link LEAVE chain
+	DCA I RSP	/ Link LEAVE chain
 	JMP I GENLV
 
 // EXIT a zero opcode means return from word.
