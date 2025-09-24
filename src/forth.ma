@@ -114,6 +114,7 @@ SSIZE,	0177	/ Data stack gets a full page
 RSIZE,	0077	/ R- and O- stacks are smaller
 
 ASPACE,	40	/ ASCII Space
+AZERO,	60	/ ASCII Zero
 NEGZRO,	7720	/ Negative ASCII zero
 LOMEM,	-200	/ Boundary for field 0 references
 MASK6,	0077	/ Sixbit mask
@@ -1298,7 +1299,7 @@ LOOP$:	CLA
 	CLA
 	DVI		/ Remainder in AC
 DIVSR$:	12
-	TAD (60		/ Make it ASCII
+	TAD AZERO	/ Make it ASCII
 	PUSH		/ Push it
 	ISZ COUNT	/ Count it
 	MQA		/ Get Dividend
@@ -2519,6 +2520,79 @@ EXIT,	0
 	LAYOP 0
 	JMP I EXIT
 
+// S>D Convert to double integer
+TODBL,	0
+	TAD I SP	/ Test sign
+	SPA CLA
+	JMP NEG$	/ Negative
+	PUSH		/ Positive, append zero
+	JMP I TODBL
+NEG$:	CLA CMA		/ Append -1
+	JMP .-3
+	PAGE
+
+// Add a character to the front of the PAD output
+// area, working down.
+FOPTR,	    0
+FOLEN,	    0
+FOOUT,	    0
+	    DCA FODONE
+	    CLA CMA
+	    TAD FOPTR
+	    DCA FOPTR
+	    TAD FODONE
+	    DCA I FOPTR
+	    ISZ FOLEN
+	    JMP I FOOUT
+
+// <# Initialize formatted output.  The string
+// is built right to left so we use 16 words
+// starting at PAD.
+FOINIT,	0
+	JMS PAD
+	TAD (20
+	TAD I SP
+	DCA FOPTR	/ Set top end
+	POP
+	DCA FOLEN	/ Zero length
+	JMP I FOINIT
+
+// #> Put PAD & COUNT on stack
+FODONE,	0
+	POP		/ Delete value
+	POP
+	TAD FOPTR
+	PUSH
+	TAD FOLEN
+	PUSH
+	JMP I FOINIT
+
+// # ( d1 -- d2 )
+FODIG,	0
+	TAD BASE	/ Use current base
+	DCA BASE$
+	TAD I SP	/ High order to AC
+	DCA T1
+	POP
+	TAD I SP	/ Low order in MQ
+	MQL
+	TAD T1
+	DVI
+BASE$:	0
+	TAD AZERO	/ Remainder to ASCII
+	JMS FOOUT
+	MQA		/ Quotient was in MQ
+	DCA I SP
+	JMS TODBL	/ Still double
+	JMP I FODIG
+
+// HOLD Add character to formatted output
+HOLD,	0
+	TAD I SP
+	JMS FOOUT
+	POP
+	JMP I HOLD
+
 	.SBTTL  Built-in word definitions
 
 	.DSECT PREDEF
@@ -2545,7 +2619,12 @@ ZERO,	0	/ For faking a return
 	.DISABLE FILL
 	.ENABLE SIXBIT
 /	.NOLIST
-	A=0
+	B=0
+	TEXT "HOLD";	A=.; 2; B; HOLD
+	TEXT "S>D_";	B=.; 2; A; TODBL
+	TEXT "<#";	A=.; 1; B; FOINIT
+	TEXT "#>";	B=.; 1; A; FODONE
+	TEXT "#_";	A=.; 1; B; FODIG
 	TEXT "LEAVE_";	B=.; 4003; A; GENLV 
 	TEXT "(L+)";	XLPPBO=.; 2; B; BOTLPP
 	TEXT "(LX)";	XLPXIT=.; 2; XLPPBO; LPXIT
