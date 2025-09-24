@@ -1287,34 +1287,12 @@ LOOP$:	CLL
 	.SBTTL Number conversions
 	PAGE
 DOT,	0		/ Print a numeric value
-	TAD I SP	/ Get the value
-	DCA T1
-	POP
-	TAD BASE	/ Modify the divisor
-	DCA DIVSR$
-	DCA COUNT	/ Count the digits
-LOOP$:	CLA
-	TAD T1
-	MQL
-	CLA
-	DVI		/ Remainder in AC
-DIVSR$:	12
-	TAD AZERO	/ Make it ASCII
-	PUSH		/ Push it
-	ISZ COUNT	/ Count it
-	MQA		/ Get Dividend
-	SNA
-	JMP GOT$
-	DCA T1
-	JMP LOOP$	/ More digits
-GOT$:	TAD COUNT	/ Done, make count negative
-	CIA
-	DCA LIMIT
-OUT$:	CLA		/ Digits are on the stack in reverse order
-	JMS EMIT	/ Get back a digit and print
-	ISZ LIMIT
-	JMP OUT$	/ Print them all
-	JMP I DOT	/ Finished.
+	JMS TODBL	/ Make it double
+	JMS FOINIT	/ Use Formatted conversion
+	JMS FONUM
+	JMS FODONE
+	JMS TYPE
+	JMP I DOT
 
 	.SBTTL Compiler
 
@@ -2577,8 +2555,22 @@ FODIG,	0
 	POP
 	TAD AZERO	/ Remainder to ASCII
 	JMS FOOUT
-	JMS TODBL	/ Value still double
+	JMS TODBL	/ Quotient still double
 	JMP I FODIG
+
+// #S ( d -- d )
+FONUM,	0
+LOOP$:	JMS FODIG
+	TAD I SP
+	SZA CLA
+	JMP LOOP$
+	TAD SP
+	IAC
+	DCA T1
+	TAD I T1
+	SZA CLA
+	JMP LOOP$
+	JMP I FONUM
 
 // HOLD Add character to formatted output
 HOLD,	0
@@ -2632,7 +2624,8 @@ ZERO,	0	/ For faking a return
 	.DISABLE FILL
 	.ENABLE SIXBIT
 /	.NOLIST
-	A=0
+	B=0
+	TEXT "#S";	A=.; 1; B; FONUM
 	TEXT "FM/MOD";	B=.; 3; A; FMMOD
 	TEXT "HOLD";	A=.; 2; B; HOLD
 	TEXT "S>D_";	B=.; 2; A; TODBL

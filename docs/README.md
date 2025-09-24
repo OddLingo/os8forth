@@ -10,6 +10,7 @@ This is an interpreter/compiler for the FORTH language that runs under the OS/8 
 * MACREL assembler, version 2
 
 ## Memory Layout
+
 * Field 0 (locations 00000 to 07777) contains the executable machine code for the FORTH engine, plus OS/8 device handlers.
 * Field 1 (locations 10000 to 17777) contains the dictionary and stacks.
 * Field 2 (locations 20000 and above) is used for I/O buffers and OS/8 file system interfaces.
