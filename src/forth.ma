@@ -1287,7 +1287,7 @@ LOOP$:	CLL
 	.SBTTL Number conversions
 	PAGE
 DOT,	0		/ Print a numeric value
-	JMS TODBL	/ Make it double
+	PUSH		/ Double unsigned
 	JMS FOINIT	/ Use Formatted conversion
 	JMS FONUM
 	JMS FODONE
@@ -2543,7 +2543,7 @@ FODONE,	0
 	PUSH
 	TAD FOLEN
 	PUSH
-	JMP I FOINIT
+	JMP I FODONE
 
 // # ( d1 -- d2 )
 FODIG,	0
