@@ -2570,20 +2570,14 @@ FODONE,	0
 // # ( d1 -- d2 )
 FODIG,	0
 	TAD BASE	/ Use current base
-	DCA BASE$
-	TAD I SP	/ High order to AC
-	DCA T1
+	PUSH
+	JMS FMMOD	/ rem quo
+	JMS SWAP	/ quo rem
+	TAD I SP	/ Recover remainder
 	POP
-	TAD I SP	/ Low order in MQ
-	MQL
-	TAD T1
-	DVI
-BASE$:	0
 	TAD AZERO	/ Remainder to ASCII
 	JMS FOOUT
-	MQA		/ Quotient was in MQ
-	DCA I SP
-	JMS TODBL	/ Still double
+	JMS TODBL	/ Value still double
 	JMP I FODIG
 
 // HOLD Add character to formatted output
@@ -2592,6 +2586,25 @@ HOLD,	0
 	JMS FOOUT
 	POP
 	JMP I HOLD
+
+// FM/MOD ( d n -- rem quo )
+FMMOD,	0
+	TAD I SP
+	POP	
+	DCA DIVBY$
+	TAD I SP	/ High order to AC
+	POP
+	DCA T1
+	TAD I SP	/ Low order in MQ
+	POP
+	MQL
+	TAD T1
+	DVI
+DIVBY$:	0
+	PUSH		/ Remainder
+	MQA
+	PUSH		/ Quotient
+	JMP I FMMOD
 
 	.SBTTL  Built-in word definitions
 
@@ -2619,7 +2632,8 @@ ZERO,	0	/ For faking a return
 	.DISABLE FILL
 	.ENABLE SIXBIT
 /	.NOLIST
-	B=0
+	A=0
+	TEXT "FM/MOD";	B=.; 3; A; FMMOD
 	TEXT "HOLD";	A=.; 2; B; HOLD
 	TEXT "S>D_";	B=.; 2; A; TODBL
 	TEXT "<#";	A=.; 1; B; FOINIT
