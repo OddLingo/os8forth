@@ -940,6 +940,21 @@ SQUOT,	0
 	JMS LITSTR
 	JMP I SQUOT
 
+// EXIT a zero opcode means return from word.
+EXIT,	0
+	LAYOP 0
+	JMP I EXIT
+
+// S>D Convert to double integer
+TODBL,	0
+	TAD I SP	/ Test sign
+	SPA CLA
+	JMP NEG$	/ Negative
+	PUSH		/ Positive, append zero
+	JMP I TODBL
+NEG$:	CLA CMA		/ Append -1
+	JMP .-3
+
 	PAGE
 SKPIP,	0
 	TAD IP		/ Skip IP ahead
@@ -1884,7 +1899,7 @@ BUMP$:	ISZ CURENT	/ Find link word
 PNAME,	0
 	TAD I CURENT
 	SNA
-	ERROR ME	/ Trying to print missing entry
+	JMP MISS$
 	AND LENMSK	/ Words in the name are limit
 	CIA
 	DCA LIMIT
@@ -1910,6 +1925,110 @@ LOOP$:	TAD I TEXT3	/ Fetch word of two chars
 	ISZ LIMIT	/ Count down
 	JMP LOOP$
 	JMP I PNAME
+MISS$:	ERROR ME	/ Trying to print missing entry
+	JMP I PNAME
+
+
+// Add a character to the front of the PAD output
+// area, working down.
+FOPTR,	0
+FOLEN,	0
+FOOUT,	0
+	DCA FODONE	/ Temp save char to output
+	CLA CMA		/ Decrement output pointer
+	TAD FOPTR
+	DCA FOPTR
+	TAD FODONE	/ Put new char there
+	DCA I FOPTR
+	ISZ FOLEN	/ Increment used length
+	JMP I FOOUT
+
+// <# Initialize formatted output.  The string
+// is built right to left so we use 16 words
+// starting at PAD.
+FOINIT,	0
+	JMS PAD
+	TAD (20
+	TAD I SP
+	DCA FOPTR	/ Set top end
+	POP
+	DCA FOLEN	/ Zero length
+	JMP I FOINIT
+
+// #> Put PAD & COUNT on stack
+FODONE,	0
+	POP		/ Delete value
+	POP
+	TAD FOPTR	/ Start of formatted str
+	PUSH
+	TAD FOLEN	/ Length
+	PUSH
+	JMP I FODONE
+
+// # ( d1 -- d2 ) Format one digit of number.
+FODIG,	0
+	TAD BASE	/ Use current base
+	PUSH
+	JMS FMMOD	/ rem quo
+	JMS SWAP	/ quo rem
+	TAD I SP	/ Recover remainder
+	POP
+	TAD AZERO	/ Remainder to ASCII
+	JMS FOOUT
+	JMS TODBL	/ Quotient still double
+	JMP I FODIG
+
+// #S ( d -- d ) Format all digits of a number
+FONUM,	0
+LOOP$:	JMS FODIG	/ Do one
+	TAD I SP	/ Is the residue zero?
+	SZA CLA
+	JMP LOOP$	/ No, do it again
+	TAD SP		/ Look at low-order part
+	IAC
+	DCA T1
+	TAD I T1
+	SZA CLA
+	JMP LOOP$	/ No, do it again
+	JMP I FONUM
+
+// HOLD Add character to formatted output
+HOLD,	0
+	TAD I SP
+	JMS FOOUT
+	POP
+	JMP I HOLD
+
+// FM/MOD ( d n -- rem quo ) Divide double
+// number yielding remainder and quotient.
+FMMOD,	0
+	TAD I SP
+	POP	
+	DCA DIVBY$
+	TAD I SP	/ High order to AC
+	POP
+	DCA T1
+	TAD I SP	/ Low order in MQ
+	POP
+	MQL
+	TAD T1
+	DVI
+DIVBY$:	0
+	PUSH		/ Remainder
+	MQA
+	PUSH		/ Quotient
+	JMP I FMMOD
+
+// SIGN ( n -- ) Put minus sign in formatted
+// output if value is negative.
+SIGN,	0
+	TAD I SP	/ Get value
+	POP
+	SMA CLA		/ Is it negative?
+	JMP I SIGN	/ No
+	TAD ("-)	/ Yes, put minus sign.
+	JMS FOOUT
+	JMP I SIGN
 
 	PAGE
 // FIND ( caddr -- caddr 0 | xt 1 | xt -1 )
@@ -2493,112 +2612,7 @@ GENLV,	0
 	DCA I RSP	/ Link LEAVE chain
 	JMP I GENLV
 
-// EXIT a zero opcode means return from word.
-EXIT,	0
-	LAYOP 0
-	JMP I EXIT
-
-// S>D Convert to double integer
-TODBL,	0
-	TAD I SP	/ Test sign
-	SPA CLA
-	JMP NEG$	/ Negative
-	PUSH		/ Positive, append zero
-	JMP I TODBL
-NEG$:	CLA CMA		/ Append -1
-	JMP .-3
-	PAGE
-
-// Add a character to the front of the PAD output
-// area, working down.
-FOPTR,	    0
-FOLEN,	    0
-FOOUT,	    0
-	    DCA FODONE
-	    CLA CMA
-	    TAD FOPTR
-	    DCA FOPTR
-	    TAD FODONE
-	    DCA I FOPTR
-	    ISZ FOLEN
-	    JMP I FOOUT
-
-// <# Initialize formatted output.  The string
-// is built right to left so we use 16 words
-// starting at PAD.
-FOINIT,	0
-	JMS PAD
-	TAD (20
-	TAD I SP
-	DCA FOPTR	/ Set top end
-	POP
-	DCA FOLEN	/ Zero length
-	JMP I FOINIT
-
-// #> Put PAD & COUNT on stack
-FODONE,	0
-	POP		/ Delete value
-	POP
-	TAD FOPTR
-	PUSH
-	TAD FOLEN
-	PUSH
-	JMP I FODONE
-
-// # ( d1 -- d2 )
-FODIG,	0
-	TAD BASE	/ Use current base
-	PUSH
-	JMS FMMOD	/ rem quo
-	JMS SWAP	/ quo rem
-	TAD I SP	/ Recover remainder
-	POP
-	TAD AZERO	/ Remainder to ASCII
-	JMS FOOUT
-	JMS TODBL	/ Quotient still double
-	JMP I FODIG
-
-// #S ( d -- d )
-FONUM,	0
-LOOP$:	JMS FODIG
-	TAD I SP
-	SZA CLA
-	JMP LOOP$
-	TAD SP
-	IAC
-	DCA T1
-	TAD I T1
-	SZA CLA
-	JMP LOOP$
-	JMP I FONUM
-
-// HOLD Add character to formatted output
-HOLD,	0
-	TAD I SP
-	JMS FOOUT
-	POP
-	JMP I HOLD
-
-// FM/MOD ( d n -- rem quo )
-FMMOD,	0
-	TAD I SP
-	POP	
-	DCA DIVBY$
-	TAD I SP	/ High order to AC
-	POP
-	DCA T1
-	TAD I SP	/ Low order in MQ
-	POP
-	MQL
-	TAD T1
-	DVI
-DIVBY$:	0
-	PUSH		/ Remainder
-	MQA
-	PUSH		/ Quotient
-	JMP I FMMOD
-
-	.SBTTL  Built-in word definitions
+.SBTTL  Built-in word definitions
 
 	.DSECT PREDEF
 	FIELD 1
@@ -2624,7 +2638,8 @@ ZERO,	0	/ For faking a return
 	.DISABLE FILL
 	.ENABLE SIXBIT
 /	.NOLIST
-	B=0
+	A=0
+	TEXT "SIGN";	B=.; 2; A; SIGN
 	TEXT "#S";	A=.; 1; B; FONUM
 	TEXT "FM/MOD";	B=.; 3; A; FMMOD
 	TEXT "HOLD";	A=.; 2; B; HOLD

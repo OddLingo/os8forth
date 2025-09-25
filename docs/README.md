@@ -2,7 +2,7 @@
 This is an interpreter/compiler for the FORTH language that runs under the OS/8 monitor on simulated (or real!) Digital Equipment Corporation PDP-8 computers.  By modern standards, the PDP-8 had extremely limited resources so do not expect a full-featured FORTH with multi-tasking, etc.  However, it can read and write text files.
 
 ## Minimum hardware and software
-* PDP-8/e or later processor
+* PDP-8/e or later processor.  The pdp8 simulator in the [OpenSIMH](https://opensimh.org/) package works fine.
 * Extended Arithmetic Element (EAE)
 * 12 KW memory
 * Console TTY
@@ -25,11 +25,30 @@ This is an interpreter/compiler for the FORTH language that runs under the OS/8 
 
 * Although it is is enticing to use all 32K words for the dictionary, this would require the use of double word addresses *everywhere* and since the FORTH environment is heavily built out of pointers, this would make the dictionary twice as big just to start, and the runtime engine code would be larger as well.  So the dictionary has to fit in 4096 words although the programmer can access the higher memory fields (see **Custom Words** below.)
 
-* The maximum size of a file on OS/8 is 4096 blocks of 256 words. The standard format for text files packs 3 ASCII characters into two words which makes the maximum file size 1,572,864 characters.  This means that file positions as reported by FILE-POSITION and consumed by REPOSITION-FILE have to be doublewords.
+* The maximum size of a file on OS/8 is 4096 blocks of 256 words. The standard format for text files packs 3 ASCII characters into two words which makes the maximum file size 1,572,864 characters.  This means that file positions as reported by `FILE-POSITION` and consumed by `REPOSITION-FILE` have to be doublewords.
 
 * Turning on bit 0 of the switch register will cause the names of words to be printed on the console as they are executed.
 
-* At startup the interpreter looks for a text file named **INIT.FS** and executes the contents if found.
+* At startup the interpreter looks for a text file named `DSK:INIT.FS` and executes the contents if found.
+
+## Dictionary
+### Standard words
+
+      ! # #> ' * */ + +! , - . ." / : ; < <# <= <> = > >= @
+      [ ['] ] 0< 0<> 0= 0= 0> 1+ 1- 2! 2/ 2@ 2DROP .6" 6"
+      ABORT ABORT" ACCEPT AGAIN ALIGNED ALLOT AND AVAIL BASE
+      BEGIN BL >BODY BYE C! C, C@ CASE CELL CELL+ [CHAR]
+      CHAR CHARS CLOSE-FILE CMOVE CONSTANT COUNT CR CREATE
+      CREATE-FILE DECIMAL DEPTH DICT DO DOES> DONE DROP
+      ?DUP DUP ELSE EMIT ENDCASE ENDOF EXECUTE EXIT FILL FIND
+      FLUSH-FILE FM/MOD FORGET HERE HOLD I IF IMMEDIATE >IN
+      INCLUDE-FILE INIT INVERT J KEY LEAVE LOAD +LOOP LOOP
+      LSHIFT /MOD MOVE NEGATE >NUMBER OCTAL OF OPEN-FILE
+      OR OVER PAD PARSE PICK POSTPONE >R R! R> R@ READ-FILE
+      READ-LINE R/O ROLL ROT RSHIFT R/W #S .S S" S>D SOURCE-ID
+      SPACE SPACES STATE SWAP SWITCH THEN TIB TYPE TYPE6
+      UNTIL VARIABLE WITHIN WORD WORDS WRITE-FILE WRITE-LINE
+      X! X@
 
 ### Custom words
 The following FORTH words are extensions to the FORTH Standard to gain access to unique features of the PDP-8 hardware.
@@ -38,7 +57,7 @@ The following FORTH words are extensions to the FORTH Standard to gain access to
 
 * **X!** ( n addr fnum -- ) *Extended Store*, Stores n at the specified address in the specified field.  Modifying locations in all of field 0 and 1, and the lower half of field 2, is not advised.
 
-* **SWITCH** ( -- n ) puts the PDP-8 switch settings on the stack.
+* **SWITCH** ( -- n ) puts the PDP-8 front panel switch settings on the stack.
 
 * **6"** Works like `S"` but codes the string in SIXBIT, using half the memory but converting to uppercase.
 
@@ -47,4 +66,12 @@ The following FORTH words are extensions to the FORTH Standard to gain access to
 * **.6"** Similar to `."` but uses SIXBIT storage. 
 
 ## Building
-The MACREL/LINK relocatable assembler and linker are used.  A BATCH file FORTH.BI is provided that puts everything together.
+The MACREL/LINK relocatable assembler and linker are used.  A BATCH file `FORTH.BI` is provided that puts everything together.
+
+1. Copy the `FORTH.BI` file to `SYS:`
+2. `.SUBMIT SYS:FORTH/T`
+
+This will create `SYS:FORTH.SV` as well as the linker map `FORTH.MP` and various `.LS` files.  The interpreter can then be executed by:
+
+        .R FORTH
+
