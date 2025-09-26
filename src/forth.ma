@@ -105,6 +105,8 @@ NEGQ,	-""	/ Terminating quote
 LENMSK,	17	/ Length mask in dictonary header
 IMMFLG,	4000	/ Flag to execute during compilation
 FTHFLG,	2000	/ Flag for interpreted code
+NEGNIN,	-"9		/ Digit 9
+NEGMIN,	-"-		/ Minus sign
 
 / Stacks are at the top of Field 1.
 SBASE,	7200	/ Bottom of data stack
@@ -1205,7 +1207,9 @@ MULT$:	0
 	JMP I TIMES
 
 	PAGE
-DIVIDE,	0		/ ( a b -- a/b )
+// ( a b -- a/b )  ??? Supposed to be signed
+// See PDP-8 Reference for how.
+DIVIDE,	0
 	TAD I SP
 	DCA DIVSR$
 	POP
@@ -1301,15 +1305,38 @@ LOOP$:	CLL
 
 	.SBTTL Number conversions
 	PAGE
-DOT,	0		/ Print a numeric value
+// U. ( n -- ) Print unsigned value
+UDOT,	0		/ Print a numeric value
 	PUSH		/ Double unsigned
 	JMS FOINIT	/ Use Formatted conversion
+UDOT2,	JMS FONUM	/ Output all digits
+	JMS FODONE
+	JMS TYPE
+	JMP I UDOT
+
+// . ( nn - )) Print signed value.
+DOT,	0
+	JMS DUP		/ Save the sign
+	JMS ABS
+	JMS TODBL
+	JMS FOINIT	/ Init formatting
 	JMS FONUM
+	JMS ROTOP	/ Get the signed value back
+	JMS SIGN	/ Emit minus sign
 	JMS FODONE
 	JMS TYPE
 	JMP I DOT
 
-	.SBTTL Compiler
+// ABS Single word absolute value
+ABS,	0
+	TAD I SP
+	SMA
+	JMP I ABS
+	CIA
+	DCA I SP
+	JMP I ABS
+
+.SBTTL Compiler
 
 /// Allocate space in the dictionary ( n -- )
 ALLOT,	0
@@ -1602,20 +1629,26 @@ LITNUM,	0	  / Runtime for a literal number
 
 	// Low-level number parser.  Text already in
 	// WRDBUF, result goes on stack.
+ISNEG,	0
 NUMLO,	0
-	TAD I WRDPTR
+	DCA ISNEG	/ Clear negative flag
+	TAD I WRDPTR	/ Get char count
 	CIA
 	DCA LIMIT
-	TAD WRDPTR
+	TAD WRDPTR	/ First char
 	DCA TEXT1
-	DCA TOS		/ Start with zero
+	DCA TOS		/ Start value zero
 LOOP$:	TAD I TEXT1
 	DCA CHAR
 	JMS SKPNUM	/ Skip if numeric
 	JMP DONE$
-	TAD CHAR	/ Is numeric, convert to value
+	TAD CHAR	/ Check for minus
+	TAD NEGMIN
+	SNA CLA
+	JMP SETM$	/ Yes, set flag
+	TAD CHAR
 	TAD NEGZRO	/ Subtract ASCII "0"
-	DCA CHAR
+	DCA CHAR	/ Save value
 	TAD TOS		/ Shift previous value
 	MQL		/ Into MQ
 	TAD BASE
@@ -1623,12 +1656,22 @@ LOOP$:	TAD I TEXT1
 	MUY
 	0		/ Multiplicand
 	MQA		/ Get product
-	TAD CHAR	/ Add lastest char
+	TAD CHAR	/ Add latest char
 	DCA TOS		/ This is latest value
 	ISZ LIMIT
 	JMP LOOP$	/ Get next digit
-DONE$:	TAD TOS
-	PUSH	/ All done push final value
+	JMP RET$
+SETM$:	CLA CMA		/ Set negative flag
+	DCA ISNEG
+	JMP .-4
+DONE$:	TAD ISNEG	/ Was there a minus sign?
+	SNA CLA
+	JMP RET$	/ No
+	TAD TOS		/ Yes, negate
+	CIA
+	JMP PUSH$
+RET$:	TAD TOS
+PUSH$:	PUSH	/ All done push final value
 	JMP I NUMLO
 
 	PAGE
@@ -1800,9 +1843,11 @@ LPXIT,	0
 	POP
 	JMP I LPXIT
 
-NEGNIN,	7703
-
 SKPNUM,	0		/ Skip if CHAR is numeric
+	TAD NEGMIN
+	TAD CHAR
+	SNA CLA
+	JMP NUM$
 	TAD NEGZRO
 	TAD CHAR
 	SPA
@@ -1812,7 +1857,7 @@ SKPNUM,	0		/ Skip if CHAR is numeric
 	TAD CHAR
 	SMA
 	JMP .+2		/ Not numeric, don't skip
-	ISZ SKPNUM	/ Is numeric so skip return
+NUM$:	ISZ SKPNUM	/ Is numeric so skip return
 NOT$:	CLA
 	JMP I SKPNUM
 	
@@ -2639,6 +2684,8 @@ ZERO,	0	/ For faking a return
 	.ENABLE SIXBIT
 /	.NOLIST
 	A=0
+	TEXT "ABS_";	B=.; 2; A; ABS
+	TEXT "U.";	A=.; 1; B; UDOT
 	TEXT "SIGN";	B=.; 2; A; SIGN
 	TEXT "#S";	A=.; 1; B; FONUM
 	TEXT "FM/MOD";	B=.; 3; A; FMMOD
