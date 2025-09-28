@@ -5,7 +5,9 @@
 
 / These are macros so that bounds checking can be
 / added if required.
-	.MACRO PUSH
+	.MACRO PUSH VAL
+	.IF NB VAL <TAD VAL
+	>
 	JMS PUSHS
 	.ENDM
 
@@ -13,7 +15,10 @@
 	JMS PUSHRS
 	.ENDM
 
-	.MACRO POP
+	.MACRO POP DEST
+	.IF NB DEST <TAD I SP
+	DCA DEST
+	>
 	ISZ SP
 	.ENDM
 
@@ -72,6 +77,7 @@ OSP,	0	/ Opcode stack pointer
 IP,	0	/ Next instruction pointer
 
 BASE,	12	/ Number conversion base
+SCALE,	^D1000	/ Print scale factor
 HERE,	DCTEND	/ Start of free memory
 DICT,	XBYE	/ Start of dictionary chain
 STATE,	0	/ Compiling
@@ -84,7 +90,8 @@ TEXT4,	0
 NEWORD,	0	/ Word being built
 COUNT,	0	/ Counting up from zero
 LIMIT,	0	/ Size of a buffer, up to zero
-TOS,	0	/ top of stack value
+HIGH,	0	/ Hi order word of value
+LOW,	0	/ Low order word of value
 T1,	0
 T2,	0
 DPTR,	0	/ address of current dictionary word
@@ -288,6 +295,13 @@ ABORT,	0
 STOP,	JMS CRLF
 	JMP I RUN
 
+POPS,	0
+	ISZ SP
+	TAD SP
+	TAD (400)
+	SMA CLA
+	HLT
+	JMP I POPS
 
 	.SBTTL Main interpreter
 PAGE
@@ -426,6 +440,7 @@ TWODIV,	0     / Arithmetic shift right
 	DCA I SP
 	JMP I TWODIV
 
+	PAGE
 MINUS1,	0     / 1- Subtract one
 	STA
 	TAD I SP
@@ -436,7 +451,6 @@ INTNOW,	0     / [ Interpret inside definition
 	DCA STATE
 	JMP I INTNOW
 
-	PAGE
 CMPNOW,	0     / ] Resume compiling
 	ISZ STATE
 	JMP I CMPNOW
@@ -878,12 +892,16 @@ DIVMOD,	0		/ Divide with remainder
 	DCA MODBY$
 	POP
 	TAD I SP
+	CLL
 	MQL DVI
 MODBY$:	0
+	SZL
+	JMP DOVER
 	DCA I SP	/ Remainder is in AC
 	MQA
 	PUSH	/ Quotient was in MQ
 	JMP I DIVMOD
+DOVER,	ERROR OF
 
 	.SBTTL Literals
 
@@ -988,11 +1006,15 @@ HALT,	0
 SET10,	0		/ Runtime for DECIMAL
 	TAD (12
 	DCA BASE
+	TAD (^D1000
+	DCA SCALE
 	JMP I SET10
 
 SET8,	0		/ Runtime for OCTAL
 	TAD (10
 	DCA BASE
+	TAD (1000
+	DCA SCALE
 	JMP I SET8
 	
 SYSVAR,	0		/ runtime for System variables
@@ -1047,13 +1069,13 @@ ISLIT,	0     / Push a literal from dictionary
 // @ Simple fetch ( addr -- n )
 FETCH,	0
 	TAD I SP	/Get the address
-	DCA TOS
-	TAD TOS		/ Compare with 0200
+	DCA LOW
+	TAD LOW		/ Compare with 0200
 	TAD LOMEM
 	SPA		/ Do not change field over 0200
 	CDF .
 	CLA
-	TAD I TOS
+	TAD I LOW
 	CDF TIB
 	DCA I SP
 	JMP I FETCH
@@ -1061,21 +1083,22 @@ FETCH,	0
 // ! Simple store ( n addr -- )
 STORE,	0
 	TAD I SP	/GET ADDRESS
-	DCA TOS
+	DCA LOW
 	POP
 	TAD I SP	/GET VALUE
 	POP
 	DCA T1
-	TAD TOS		/ Compare address with 0200
+	TAD LOW		/ Compare address with 0200
 	TAD LOMEM
 	SPA		/ Do change field if > 0200
 	CDF .
 	CLA
 	TAD T1
-	DCA I TOS
+	DCA I LOW
 	CDF TIB
 	JMP I STORE
 
+	PAGE
 MOVE,	0		/ ( adr1 adr2 len -- )
 	TAD I SP	/ count
 	CIA
@@ -1137,22 +1160,41 @@ DEPTH,	0		/ Report stack depth
 	PUSH
 	JMP I DEPTH
 
-ROTOP,	0		/ Rotate top 3 stack items
+// ROT ( a b c -- b c a )
+ROT,	0
 	TAD I SP	/ Fetch top down
-	DCA T1
+	DCA T1		/ c
 	POP
 	TAD I SP
-	DCA T2
+	DCA T2		/ b
 	POP
 	TAD I SP
-	DCA TOS
+	DCA LOW		/ a
 	TAD T2
 	DCA I SP
 	TAD T1
 	PUSH
-	TAD TOS
+	TAD LOW
 	PUSH	
-	JMP I ROTOP
+	JMP I ROT
+
+// -ROT ( a b c -- c a b )
+MROT,	0
+	TAD I SP	/ Fetch top down
+	DCA T1		/ c
+	POP
+	TAD I SP
+	DCA T2		/ b
+	POP
+	TAD I SP
+	DCA LOW		/ a
+	TAD T1
+	DCA I SP
+	TAD LOW
+	PUSH
+	TAD T2
+	PUSH	
+	JMP I MROT
 
 QDUP,	0		/ DUP if non-zero
 	TAD I SP
@@ -1176,15 +1218,15 @@ DROP2,	0
 	JMP I DROP2
 
 SWAP,	0		/ ( n1 n2 -- n2 n1 )
-	TAD I SP	/ Get n1
-	DCA TOS
-	TAD SP		/ Look at 2nd stack item
+	TAD I SP	/ Get n2
+	DCA DROP2	/ Save it
+	TAD SP		/ Point at n1
 	IAC
-	DCA T1		/ Other SP
-	TAD I T1	/ Get n2
+	DCA DROP
+	TAD I DROP	/ Get n1
 	DCA I SP	/ Put it at top
-	TAD TOS		/ Get what WAS at top
-	DCA I T1	/ Put it at second
+	TAD DROP2	/ Get what WAS at top
+	DCA I DROP	/ Put it at second
 	JMP I SWAP
 
 	.SBTTL Mathematics
@@ -1195,6 +1237,7 @@ NEGATE,	0		/ Invert a number
 	DCA I SP
 	JMP I NEGATE
 
+// * Single precision multiply
 TIMES,	0		/ (a b -- a*b )
 	TAD I SP
 	DCA MULT$
@@ -1202,40 +1245,78 @@ TIMES,	0		/ (a b -- a*b )
 	TAD I SP
 	MQL MUY
 MULT$:	0
-	MQA
+	CLA MQA		/ Get low 12b
 	DCA I SP
 	JMP I TIMES
 
 	PAGE
-// ( a b -- a/b )  ??? Supposed to be signed
-// See PDP-8 Reference for how.
-DIVIDE,	0
+// UM* Unsigned multiply with double result
+// ( u1 u2 -- ud )
+UMULT, 0
+	TAD I SP
+	DCA MULT$
+	POP
+	TAD I SP
+	MQL MUY
+MULT$:	0
+	DCA HIGH	/ High order part
+	MQA
+	DCA I SP	/ Low order part
+	TAD HIGH
+	PUSH		/ Low order part
+	JMP I UMULT
+
+// M* Signed multiply with double result
+// ( n1 n2 -- d )
+MSTAR, 0
+	TAD I SP	/ n2 after MUY
+	DCA MULT$
+	POP
+	TAD I SP	/ n1 to MQ
+	MQL MUY
+MULT$:	0
+	DCA HIGH	/ Set hi 12b aside
+	MQA
+	DCA I SP	/ lo 12b on stack
+	TAD HIGH	/ then hi 12b
+	PUSH
+	JMP I MSTAR
+
+// Unsigned 12-bit divide ( a b -- a/b )
+UDIV,	0
 	TAD I SP
 	DCA DIVSR$
 	POP
 	TAD I SP
+	CLL
 	MQL DVI
 DIVSR$:	0
-	MQA
+	CLA MQA
 	DCA I SP
-	JMP I DIVIDE
+	JMP I UDIV
+
+// Signed 12-bit divide ( a b -- a/b )
+SDIV,	0
+	TAD I SP
+	DCA DIVSR$
+	POP
+	TAD I SP
+	CLL
+	MQL DVI
+DIVSR$:	0
+	CLA MQA
+	DCA I SP
+	JMP I SDIV
 
 // Multiply then divide with 24-bit intermediary.
+// M*
 MULDIV,	0		/ ( a b c -- a*b/c )
-	TAD I SP
-	DCA MD2$
+	JMS MROT	/ c a b
+	JMS MSTAR	/ c abd
+	JMS ROT	/ abd c
+	JMS FMMOD	/ a*b/c
+	JMS SWAP
 	POP
-	TAD I SP
-	DCA MD1$
-	POP
-	TAD I SP
-	MQL
-	MUY
-MD1$:	00
-	DVI
-MD2$:	00
-	CLA MQA
-	DCA I SP	
 	JMP I MULDIV
 
 ONEP,	0		/ ( n -- n+1 )
@@ -1303,8 +1384,20 @@ LOOP$:	CLL
 	DCA I SP
 	JMP I RSHIFT
 
-	.SBTTL Number conversions
 	PAGE
+// D* ( d n -- d )
+DMULT,	0
+	JMS DUP		/ dlo dhi n n
+	JMS MROT	/ dlo n dhi n
+	JMS MSTAR	/ dlo n plo phi
+	POP 		/ dlo n plo
+	JMS MROT	/ plo dlo n
+	JMS MSTAR	/ plo plo phi
+	JMS ROT		/ plo phi plo
+	JMS PLUS	/ plo phi
+	JMP I DMULT
+
+	.SBTTL Number conversions
 // U. ( n -- ) Print unsigned value
 UDOT,	0		/ Print a numeric value
 	PUSH		/ Double unsigned
@@ -1321,7 +1414,7 @@ DOT,	0
 	JMS TODBL
 	JMS FOINIT	/ Init formatting
 	JMS FONUM
-	JMS ROTOP	/ Get the signed value back
+	JMS ROT	/ Get the signed value back
 	JMS SIGN	/ Emit minus sign
 	JMS FODONE
 	JMS TYPE
@@ -1526,11 +1619,11 @@ CLASS,	0
 // ( caddr -- addr len )
 COUNTS,	0
 	TAD I SP
-	DCA TOS		/ Save the length
+	DCA LOW		/ Save the length
 	TAD I SP	/ Increment the address
 	IAC
 	DCA I SP	/ Save it back
-	TAD TOS
+	TAD LOW
 	PUSH	/ Push the length
 	JMP I COUNTS
 
@@ -1627,21 +1720,24 @@ LITNUM,	0	  / Runtime for a literal number
 	ISZ IP
 	JMP I LITNUM
 
-	// Low-level number parser.  Text already in
-	// WRDBUF, result goes on stack.
+// Low-level number parser.  Text already in
+// WRDBUF, result goes on stack.
 ISNEG,	0
+ISDBL,	0
 NUMLO,	0
 	DCA ISNEG	/ Clear negative flag
+	DCA ISDBL
 	TAD I WRDPTR	/ Get char count
 	CIA
 	DCA LIMIT
 	TAD WRDPTR	/ First char
 	DCA TEXT1
-	DCA TOS		/ Start value zero
+	DCA LOW		/ Start value zero
+	DCA HIGH
 LOOP$:	TAD I TEXT1
 	DCA CHAR
 	JMS SKPNUM	/ Skip if numeric
-	JMP DONE$
+	JMP DBLIT$
 	TAD CHAR	/ Check for minus
 	TAD NEGMIN
 	SNA CLA
@@ -1649,28 +1745,33 @@ LOOP$:	TAD I TEXT1
 	TAD CHAR
 	TAD NEGZRO	/ Subtract ASCII "0"
 	DCA CHAR	/ Save value
-	TAD TOS		/ Shift previous value
+	TAD LOW		/ Shift previous value
 	MQL		/ Into MQ
 	TAD BASE
 	DCA .+2
 	MUY
 	0		/ Multiplicand
+	SZA		/ Non-0 HIGH means dbl
+	ISZ ISDBL
+	DCA HIGH
 	MQA		/ Get product
 	TAD CHAR	/ Add latest char
-	DCA TOS		/ This is latest value
-	ISZ LIMIT
+	DCA LOW		/ This is latest value
+NEXT$:	ISZ LIMIT
 	JMP LOOP$	/ Get next digit
 	JMP RET$
 SETM$:	CLA CMA		/ Set negative flag
 	DCA ISNEG
 	JMP .-4
+DBLIT$:	ISZ ISDBL
+	JMP NEXT$
 DONE$:	TAD ISNEG	/ Was there a minus sign?
 	SNA CLA
 	JMP RET$	/ No
-	TAD TOS		/ Yes, negate
+	TAD LOW		/ Yes, negate
 	CIA
 	JMP PUSH$
-RET$:	TAD TOS
+RET$:	TAD LOW
 PUSH$:	PUSH	/ All done push final value
 	JMP I NUMLO
 
@@ -1702,7 +1803,7 @@ GETNUM,	0		/ ( dinit caddr len -- dval caddr remain )
 	POP
 	POP		/ Ignore high word
 	TAD I SP
-	DCA TOS		/ Save starting value
+	DCA LOW		/ Save starting value
 LOOP$:	TAD I TEXT1	/ Examine next char
 	DCA CHAR
 	JMS SKPNUM	/ Skip if numeric
@@ -1710,18 +1811,18 @@ LOOP$:	TAD I TEXT1	/ Examine next char
 	TAD CHAR	/ Is numeric so convert to value
 	TAD NEGZRO
 	DCA CHAR
-	TAD TOS		/ Shift previous value
+	TAD LOW		/ Shift previous value
 	MQL		/ Into MQ
 	TAD BASE
 	DCA .+2
 	MUY
 	00		/ Multiplicand
-	MQA		/ Get product
+	CLA MQA		/ Get product
 	TAD CHAR	/ Add lastest char
-	DCA TOS		/ This is latest value
+	DCA LOW		/ This is latest value
 	ISZ LIMIT
 	JMP LOOP$	/ Get next digit
-	TAD TOS
+	TAD LOW
 	PUSH	/ All done push final value
 	CLA
 	PUSH	/ Push high word
@@ -1882,18 +1983,19 @@ DOTS,	0
 	STA
 	TAD SBASE	/ Start at bottom
 	TAD SSIZE
-	DCA T2
+	DCA SP$
 LOOP$:	JMS SPACE
-	TAD I T2
+	TAD I SP$
 	PUSH
 	JMS DOT
 	STA
-	TAD T2
-	DCA T2
+	TAD SP$
+	DCA SP$
 	ISZ LIMIT$
 	JMP LOOP$
 	JMS CRLF
 	JMP I DOTS
+SP$:	0     / Private stack scanner
 LIMIT$:	0
 
 SPACE,	0		/ Type a space
@@ -1990,13 +2092,20 @@ FOOUT,	0
 
 // <# Initialize formatted output.  The string
 // is built right to left so we use 16 words
-// starting at PAD.
+// starting at PAD.  Double value D1 is on the stack.
 FOINIT,	0
+	/ Pre-scale the value by 1000
+	PUSH SCALE
+	JMS FMMOD	/ rem quo
+	TAD I SP	/ quo is part over 1000
+	DCA HIGH	/ Save it for later
+	DCA I SP	/ Zero old high part
+	/ Stack is now D1 MOD SCALE and HIGH
+	/ contains D1 / SCALE.
+	/ Allocate buffer above PAD.
 	JMS PAD
 	TAD (20
-	TAD I SP
-	DCA FOPTR	/ Set top end
-	POP
+	POP FOPTR	/ Set top end
 	DCA FOLEN	/ Zero length
 	JMP I FOINIT
 
@@ -2004,37 +2113,57 @@ FOINIT,	0
 FODONE,	0
 	POP		/ Delete value
 	POP
-	TAD FOPTR	/ Start of formatted str
-	PUSH
-	TAD FOLEN	/ Length
-	PUSH
+	PUSH FOPTR	/ Start of formatted str
+	PUSH FOLEN	/ Length
 	JMP I FODONE
 
 // # ( d1 -- d2 ) Format one digit of number.
+// Each call divides the double value by the BASE
+// and uses the remainder to make the digit.
 FODIG,	0
-	TAD BASE	/ Use current base
-	PUSH
+	PUSH BASE	/ Use current base
 	JMS FMMOD	/ rem quo
 	JMS SWAP	/ quo rem
 	TAD I SP	/ Recover remainder
 	POP
-	TAD AZERO	/ Remainder to ASCII
-	JMS FOOUT
+	TAD AZERO	/ Convert to ASCII
+	JMS FOOUT	/ Add to buffer
 	JMS TODBL	/ Quotient still double
 	JMP I FODIG
 
 // #S ( d -- d ) Format all digits of a number
+// Keep calling FODIG until only zero is left.
+// This has to be done in two parts to prevent
+// divide overflow.
 FONUM,	0
-LOOP$:	JMS FODIG	/ Do one
+	/ Loop printing the D1 MOD SCALE part
+	/ that was created by FOINIT.
+LOOP1$:	JMS FODIG	/ Do one digit
+	JMS SWAP	/ Look at lo word
 	TAD I SP	/ Is the residue zero?
-	SZA CLA
-	JMP LOOP$	/ No, do it again
-	TAD SP		/ Look at low-order part
-	IAC
-	DCA T1
-	TAD I T1
-	SZA CLA
-	JMP LOOP$	/ No, do it again
+	SNA CLA
+	JMP PART2$	/ Yes, part 2
+	JMS SWAP	/ Back to lo,hi order
+	JMP LOOP1$
+
+	/ Set up printing the D1 / SCALE part.
+PART2$:	TAD HIGH	/ Get the scaled out part
+	SNA
+	JMP DONE$	/ Stop if nothing there
+	POP 		/ Make room for part 2
+	POP
+	PUSH		/ Make it dbl on the stack
+	JMS TODBL
+	/ Loop printing the second part
+LOOP2$:	JMS FODIG	/ rem quo
+	JMS SWAP	/ quo rem
+	TAD I SP	/ Is the residue zero?
+	SNA CLA
+	JMP DONE$	/ Yes, stop
+	JMS SWAP
+	JMP LOOP2$	/ No, do it again
+
+DONE$:	CLA
 	JMP I FONUM
 
 // HOLD Add character to formatted output
@@ -2044,6 +2173,7 @@ HOLD,	0
 	POP
 	JMP I HOLD
 
+	PAGE
 // FM/MOD ( d n -- rem quo ) Divide double
 // number yielding remainder and quotient.
 FMMOD,	0
@@ -2057,10 +2187,13 @@ FMMOD,	0
 	POP
 	MQL
 	TAD T1
+	CLL
 	DVI
 DIVBY$:	0
+	SZL
+	JMP DOVER	/ Divide overflow?
 	PUSH		/ Remainder
-	MQA
+	CLA MQA
 	PUSH		/ Quotient
 	JMP I FMMOD
 
@@ -2194,7 +2327,7 @@ FILOPN,	0
 	CIF FHOPEN; JMS FHOPEN	/ Call OS8 interface
 	/ MQ is fileid, AC is status
 	PUSH
-	MQA
+	CLA MQA
 	PUSH
 	JMS SWAP	/ Put status on top
 	JMP I FILOPN
@@ -2216,7 +2349,7 @@ FILCRE,	0
 	CIF FHCRE; JMS FHCRE	/ OS8 interface
 	/ AC is fileid, MQ is status
 	PUSH
-	MQA
+	CLA MQA
 	PUSH
 	JMP I FILCRE
 
@@ -2684,6 +2817,10 @@ ZERO,	0	/ For faking a return
 	.ENABLE SIXBIT
 /	.NOLIST
 	A=0
+	TEXT "M*";	B=.; 1; A; MSTAR
+	TEXT "D*";	A=.; 1; B; DMULT
+	TEXT "-ROT";	B=.; 2; A; MROT
+	TEXT "UM*_";	A=.; 2; B; UMULT 
 	TEXT "ABS_";	B=.; 2; A; ABS
 	TEXT "U.";	A=.; 1; B; UDOT
 	TEXT "SIGN";	B=.; 2; A; SIGN
@@ -2822,7 +2959,7 @@ TIB,	*.+120
 	TEXT "ALLOT_";	A=.; 3; B; ALLOT
 	TEXT "AND_";	B=.;	2; A; ANDOP
 	TEXT "OR";	A=.;	1; B; OROP
-	TEXT "ROT_";	B=.;	2; A; ROTOP
+	TEXT "ROT_";	B=.;	2; A; ROT
 	TEXT "?DUP";	A=.;	2; B; QDUP
 	TEXT "PAD_";	B=.;	2; A; PAD
 	TEXT "/MOD";	A=.;	2; B; DIVMOD
@@ -2843,7 +2980,7 @@ TIB,	*.+120
 	TEXT "(DQS)_";	XTYPES=.; 3; XSTR; RDQUOT / runtime ."
 	TEXT "C,";	B=.; 1; XTYPES; COMMA
 	TEXT "(GEN)_"; XGENOP=.; 3; B; GENOP
-	TEXT "/_";     B=.; 1; XGENOP; DIVIDE
+	TEXT "UM/MOD"; B=.; 3; XGENOP; UDIV
 	TEXT ">NUMBER_"; A=.; 4; B; GETNUM
 	TEXT "MOVE";	B=.; 2; A; MOVE
 	TEXT "CMOVE_";	A=.; 3; B; MOVE
