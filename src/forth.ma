@@ -135,33 +135,32 @@ TIBPTR,	TIB	/ Console input buffer
 TIBLEN,	0120	/ 80 characters max per line
 
 // Short routines used in many places.
-TOSTMP,	0	/ Push AC on the data stack
 PUSHS,	0
-	DCA TOSTMP
+	DCA PUSHRS
 	STA		/ Minus 1
 	TAD SP		/ plus the old SP
 	DCA SP		/ is the new SP
-	TAD TOSTMP
+	TAD PUSHRS
 	DCA I SP
 	JMP I PUSHS
 
 // Push AC on the return stack
 PUSHRS,	0
-	DCA TOSTMP
+	DCA PUSHS
 	STA		/ Decrement RSP
 	TAD RSP
 	DCA RSP
-	TAD TOSTMP	/ Put value there
+	TAD PUSHS	/ Put value there
 	DCA I RSP
 	JMP I PUSHRS
 
 // Push AC on opcode stack
 PUSHOS,	0
-	DCA TOSTMP
+	DCA PUSHRS
 	STA		/ Decrement OSP
 	TAD OSP
 	DCA OSP
-	TAD TOSTMP	/ Put value there
+	TAD PUSHRS	/ Put value there
 	DCA I OSP
 	JMP I PUSHOS
 
@@ -845,7 +844,6 @@ EQLZ,	0		/ True if n=0
 	JMP RFALSE
 	JMP RTRUE
 
-	PAGE
 NEQZ,	0		/ True if n != 0
 	TAD .-1
 	DCA EQL
@@ -887,6 +885,7 @@ PAD,	0		/ Dynamic work area above HERE
 	PUSH
 	JMP I PAD
 
+	PAGE
 DIVMOD,	0		/ Divide with remainder
 	TAD I SP
 	DCA MODBY$
@@ -901,7 +900,7 @@ MODBY$:	0
 	MQA
 	PUSH	/ Quotient was in MQ
 	JMP I DIVMOD
-DOVER,	ERROR OF
+DOVER,	ERROR OV
 
 	.SBTTL Literals
 
@@ -1118,7 +1117,7 @@ LOOP$:	TAD I TEXT1
 	JMP I MOVE
 
 	.SBTTL Stack operations
-	PAGE
+
 OVER,	0		/ ( a b -- a b a )
 	TAD SP
 	IAC
@@ -1231,7 +1230,8 @@ SWAP,	0		/ ( n1 n2 -- n2 n1 )
 
 	.SBTTL Mathematics
 
-NEGATE,	0		/ Invert a number
+// NEGATE 2s complement
+NEGATE,	0
 	TAD I SP
 	CIA
 	DCA I SP
@@ -1407,20 +1407,41 @@ UDOT2,	JMS FONUM	/ Output all digits
 	JMS TYPE
 	JMP I UDOT
 
+// D. ( d -- ) Print double value
+DDOT,	0
+	TAD DDOT	/ Borrow code
+	DCA DOT
+	JMS TUCK	/ Remember the sign
+	JMS DABS
+	JMP DOTGO
+
+// DABS Double absolute value
+DABS,	0
+	TAD I SP
+	SPA CLA
+	JMS DNEG	/ Complement
+	JMP I DABS
+
+// TUCK ( n1 n2 -- n2 n1 n2 )
+TUCK,	0
+	JMS DUP
+	JMS MROT
+	JMP I TUCK
+
 // . ( nn - )) Print signed value.
 DOT,	0
-	JMS DUP		/ Save the sign
+	JMS DUP		/ Remember the sign
 	JMS ABS
 	JMS TODBL
-	JMS FOINIT	/ Init formatting
+DOTGO,	JMS FOINIT	/ Init formatting
 	JMS FONUM
-	JMS ROT	/ Get the signed value back
+	JMS ROT		/ Get the signed value back
 	JMS SIGN	/ Emit minus sign
 	JMS FODONE
 	JMS TYPE
 	JMP I DOT
 
-// ABS Single word absolute value
+// ABS Single word absolute value ( n -- n )
 ABS,	0
 	TAD I SP
 	SMA
@@ -1500,6 +1521,7 @@ COLON,	0
 	DCA I CPTR
 	JMP I COLON
 
+	PAGE
 AVAIL,	0		/ Get available memory
 	TAD HERE
 	CIA
@@ -1533,7 +1555,6 @@ FIXBAC,	0   / Fixup a backwards jump
 
 	.SBTTL Parsing input
 
-	PAGE
 /// Consume next input character from TIB buffer.
 // Use this instead of KEY in most places. ( -- ch )
 INPTR,	0
@@ -1642,7 +1663,6 @@ PSTPON,	0
 POP$:	POP
 	JMP I PSTPON
 
-	PAGE
 	.SBTTL Flow control
 
 / Mark a FOWARD jump location on the stack,
@@ -1671,6 +1691,7 @@ FIXFWD,	0
 	DCA I T1	/ Point it to HERE
 	JMP I FIXFWD
 
+	PAGE
 GENELS,	0		/ Compile ELSE
 	LAYFWD
 	JMS SWAP
@@ -1721,7 +1742,9 @@ LITNUM,	0	  / Runtime for a literal number
 	JMP I LITNUM
 
 // Low-level number parser.  Text already in
-// WRDBUF, result goes on stack.
+// WRDBUF, result goes on stack.  D* is used
+// to build a 24-but value that mgiht turn out
+// to be just 12 bits.
 ISNEG,	0
 ISDBL,	0
 NUMLO,	0
@@ -1732,47 +1755,41 @@ NUMLO,	0
 	DCA LIMIT
 	TAD WRDPTR	/ First char
 	DCA TEXT1
-	DCA LOW		/ Start value zero
-	DCA HIGH
+	PUSH		/ Initial value zero
+	PUSH		/ 0 0
 LOOP$:	TAD I TEXT1
 	DCA CHAR
 	JMS SKPNUM	/ Skip if numeric
-	JMP DBLIT$
-	TAD CHAR	/ Check for minus
+	JMP SETD$	/ Mark as double
+	TAD CHAR	/ Check for hyphen
 	TAD NEGMIN
 	SNA CLA
 	JMP SETM$	/ Yes, set flag
-	TAD CHAR
-	TAD NEGZRO	/ Subtract ASCII "0"
-	DCA CHAR	/ Save value
-	TAD LOW		/ Shift previous value
-	MQL		/ Into MQ
-	TAD BASE
-	DCA .+2
-	MUY
-	0		/ Multiplicand
-	SZA		/ Non-0 HIGH means dbl
-	ISZ ISDBL
-	DCA HIGH
-	MQA		/ Get product
-	TAD CHAR	/ Add latest char
-	DCA LOW		/ This is latest value
-NEXT$:	ISZ LIMIT
+	/ Shift previous value by base
+	PUSH BASE
+	JMS DMULT	/ val = val * base
+	TAD CHAR	/ Get digit value by
+	TAD NEGZRO	/ subtracting ASCII "0"
+	PUSH		/ on stack
+	PUSH		/ high zero
+	JMS DPLUS	/ Add new digit to value
+NEXT$:	ISZ LIMIT	/ Count characters
 	JMP LOOP$	/ Get next digit
-	JMP RET$
-SETM$:	CLA CMA		/ Set negative flag
-	DCA ISNEG
-	JMP .-4
-DBLIT$:	ISZ ISDBL
+	JMP DONE$
+
+	/ Setting flags for later
+SETM$:	ISZ ISNEG	/ Set negative flag
 	JMP NEXT$
+SETD$:	ISZ ISDBL
+	JMP NEXT$
+
+	/ Now apply flags
 DONE$:	TAD ISNEG	/ Was there a minus sign?
+	SZA CLA
+	JMS DNEG	/ Yes, negate
+	TAD ISDBL	/ Was it double?
 	SNA CLA
-	JMP RET$	/ No
-	TAD LOW		/ Yes, negate
-	CIA
-	JMP PUSH$
-RET$:	TAD LOW
-PUSH$:	PUSH	/ All done push final value
+	POP	/ No, lose high order part
 	JMP I NUMLO
 
 	PAGE
@@ -2619,14 +2636,14 @@ ROLL,	0
 	TAD COUNT
 	IAC
 	CIA
-	DCA LIMIT	/ -2
+	DCA GENCAS	/ Borrow temp -2
 SHUFL$:	TAD I T1	/ Get c
 	ISZ T1
 	DCA I T1	/ Store at old b
 	TAD T1
 	TAD (-2)	/ Back two to get d
 	DCA T1
-	ISZ LIMIT
+	ISZ GENCAS
 	JMP SHUFL$	/ Repeat n times
 	POP 		/ a c d b b Lose extra 'b'
 	JMP I ROLL
@@ -2790,6 +2807,32 @@ GENLV,	0
 	DCA I RSP	/ Link LEAVE chain
 	JMP I GENLV
 
+	PAGE
+// D+ ( d1 d2 -- d3 )  Add two 24-bit values
+//??? Not carrying from low to high words.
+DPLUS,	0
+	JMS SWAP	/ D1L D1H D2H D2L
+	PUSH (3
+	JMS ROLL	/ D1H D2H H2L D1L
+	JMS PLUS	/ D1H D2H SL
+	JMS MROT	/ SL D1H D2H
+	JMS PLUS	/ SL SH
+	JMP I DPLUS
+
+// M+ ( d n -- d )  Add 12 bits to 24 bits
+MPLUS,	0
+	JMS TODBL	/ Extend to double
+	JMS DPLUS
+	JMP I MPLUS
+
+// DNEGATE ( d -- d )  Double negate
+DNEG,	0
+	JMS INVERT
+	JMS SWAP
+	JMS NEGATE
+	JMS SWAP
+	JMP I DNEG
+
 .SBTTL  Built-in word definitions
 
 	.DSECT PREDEF
@@ -2817,6 +2860,12 @@ ZERO,	0	/ For faking a return
 	.ENABLE SIXBIT
 /	.NOLIST
 	A=0
+	TEXT "DNEGATE_";B=.; 4; A; DNEG
+	TEXT "TUCK";	A=.; 2; B; TUCK
+	TEXT "DABS";	B=.; 2; A; DABS
+	TEXT "D+";	A=.; 1; B; DPLUS
+	TEXT "D.";	B=.; 1; A; DDOT
+	TEXT "M+";	A=.; 1; B; MPLUS
 	TEXT "M*";	B=.; 1; A; MSTAR
 	TEXT "D*";	A=.; 1; B; DMULT
 	TEXT "-ROT";	B=.; 2; A; MROT
