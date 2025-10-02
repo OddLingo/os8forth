@@ -78,6 +78,7 @@ IP,	0	/ Next instruction pointer
 
 BASE,	12	/ Number conversion base
 SCALE,	^D1000	/ Print scale factor
+SCDIGS,	-3	/ Negative digit count
 HERE,	DCTEND	/ Start of free memory
 DICT,	XBYE	/ Start of dictionary chain
 STATE,	0	/ Compiling
@@ -1444,8 +1445,9 @@ DOTGO,	JMS FOINIT	/ Init formatting
 // ABS Single word absolute value ( n -- n )
 ABS,	0
 	TAD I SP
-	SMA
+	SMA CLA
 	JMP I ABS
+	TAD I SP
 	CIA
 	DCA I SP
 	JMP I ABS
@@ -1743,7 +1745,7 @@ LITNUM,	0	  / Runtime for a literal number
 
 // Low-level number parser.  Text already in
 // WRDBUF, result goes on stack.  D* is used
-// to build a 24-but value that mgiht turn out
+// to build a 24-bit value that might turn out
 // to be just 12 bits.
 ISNEG,	0
 ISDBL,	0
@@ -1791,6 +1793,40 @@ DONE$:	TAD ISNEG	/ Was there a minus sign?
 	SNA CLA
 	POP	/ No, lose high order part
 	JMP I NUMLO
+
+// FM/MOD ( d n -- rem quo ) Divide double
+// number yielding remainder and quotient.
+FMMOD,	0
+	TAD I SP
+	POP	
+	DCA DIVBY$
+	TAD I SP	/ High order to AC
+	POP
+	DCA T1
+	TAD I SP	/ Low order in MQ
+	POP
+	MQL
+	TAD T1
+	CLL
+	DVI
+DIVBY$:	0
+	SZL
+	JMP DOVER	/ Divide overflow?
+	PUSH		/ Remainder
+	CLA MQA
+	PUSH		/ Quotient
+	JMP I FMMOD
+
+// SIGN ( n -- ) Put minus sign in formatted
+// output if value is negative.
+SIGN,	0
+	TAD I SP	/ Get value
+	POP
+	SMA CLA		/ Is it negative?
+	JMP I SIGN	/ No
+	TAD ("-)	/ Yes, put minus sign.
+	JMS FOOUT
+	JMP I SIGN
 
 	PAGE
 // >NUMBER ( ud1 c-addr1 u1 -- ud2 c-addr2 u2 )
@@ -1961,19 +1997,19 @@ LPXIT,	0
 	POP
 	JMP I LPXIT
 
-SKPNUM,	0		/ Skip if CHAR is numeric
-	TAD NEGMIN
+// Skip if CHAR is numeric
+SKPNUM,	0
+	TAD NEGMIN	/ = "-"
 	TAD CHAR
 	SNA CLA
 	JMP NUM$
-	TAD NEGZRO
+	TAD NEGZRO	/ >= "0"
 	TAD CHAR
-	SPA
+	SPA CLA
 	JMP NOT$
-	CLA
-	TAD NEGNIN
 	TAD CHAR
-	SMA
+	TAD NEGNIN	/ <= "9"
+	SMA SZA
 	JMP .+2		/ Not numeric, don't skip
 NUM$:	ISZ SKPNUM	/ Is numeric so skip return
 NOT$:	CLA
@@ -2154,21 +2190,23 @@ FODIG,	0
 // divide overflow.
 FONUM,	0
 	/ Loop printing the D1 MOD SCALE part
-	/ that was created by FOINIT.
-LOOP1$:	JMS FODIG	/ Do one digit
-	JMS SWAP	/ Look at lo word
-	TAD I SP	/ Is the residue zero?
+	/ that was created by FOINIT.  This has
+	/ to be done SCALE/BASE times if HIGH
+	/ part is non-zero.
+	TAD HIGH	/ Is there a high part?
 	SNA CLA
-	JMP PART2$	/ Yes, part 2
-	JMS SWAP	/ Back to lo,hi order
+	JMP LOOP2$	/ No, jump ahead
+	TAD SCDIGS	/ Get -# low digits
+	DCA LIMIT
+LOOP1$:	JMS FODIG	/ Do one digit
+	ISZ LIMIT
 	JMP LOOP1$
 
-	/ Set up printing the D1 / SCALE part.
-PART2$:	TAD HIGH	/ Get the scaled out part
-	SNA
-	JMP DONE$	/ Stop if nothing there
+	/ Set up printing the D1 / SCALE part
+	/ AFTER the low-order part.
 	POP 		/ Make room for part 2
 	POP
+	TAD HIGH	/ Get the scaled out part
 	PUSH		/ Make it dbl on the stack
 	JMS TODBL
 	/ Loop printing the second part
@@ -2189,41 +2227,6 @@ HOLD,	0
 	JMS FOOUT
 	POP
 	JMP I HOLD
-
-	PAGE
-// FM/MOD ( d n -- rem quo ) Divide double
-// number yielding remainder and quotient.
-FMMOD,	0
-	TAD I SP
-	POP	
-	DCA DIVBY$
-	TAD I SP	/ High order to AC
-	POP
-	DCA T1
-	TAD I SP	/ Low order in MQ
-	POP
-	MQL
-	TAD T1
-	CLL
-	DVI
-DIVBY$:	0
-	SZL
-	JMP DOVER	/ Divide overflow?
-	PUSH		/ Remainder
-	CLA MQA
-	PUSH		/ Quotient
-	JMP I FMMOD
-
-// SIGN ( n -- ) Put minus sign in formatted
-// output if value is negative.
-SIGN,	0
-	TAD I SP	/ Get value
-	POP
-	SMA CLA		/ Is it negative?
-	JMP I SIGN	/ No
-	TAD ("-)	/ Yes, put minus sign.
-	JMS FOOUT
-	JMP I SIGN
 
 	PAGE
 // FIND ( caddr -- caddr 0 | xt 1 | xt -1 )
@@ -2811,12 +2814,19 @@ GENLV,	0
 // D+ ( d1 d2 -- d3 )  Add two 24-bit values
 //??? Not carrying from low to high words.
 DPLUS,	0
-	JMS SWAP	/ D1L D1H D2H D2L
-	PUSH (3
-	JMS ROLL	/ D1H D2H H2L D1L
-	JMS PLUS	/ D1H D2H SL
-	JMS MROT	/ SL D1H D2H
-	JMS PLUS	/ SL SH
+	POP HIGH
+	POP LOW
+	JMS SWAP	/ d1H d1L
+	CLA CLL
+	TAD I SP	/ Add low half
+	TAD LOW
+	DCA I SP
+	JMS SWAP
+	SZL CLA
+	IAC		/ Carry a one
+	TAD I SP	/ Add high half
+	TAD HIGH
+	DCA I SP
 	JMP I DPLUS
 
 // M+ ( d n -- d )  Add 12 bits to 24 bits
@@ -2832,6 +2842,27 @@ DNEG,	0
 	JMS NEGATE
 	JMS SWAP
 	JMP I DNEG
+
+// Ignore rest of line
+CMTL,	0
+	TAD LINLEN	/ Skip input offset to end
+	DCA INOFF
+	JMP I CMTL
+
+// Parenthesized comment.  Skip to right paren.
+CMTP,	0
+	PUSH ("))
+	JMS PARSE
+	POP
+	POP
+	JMP I CMTP
+
+// .( Immediate form of ."
+CMSG,	0
+	PUSH (")
+	JMS PARSE	/ addr len
+	JMS TYPE
+	JMP I CMSG
 
 .SBTTL  Built-in word definitions
 
@@ -2859,7 +2890,10 @@ ZERO,	0	/ For faking a return
 	.DISABLE FILL
 	.ENABLE SIXBIT
 /	.NOLIST
-	A=0
+	B=0
+	TEXT ".(";	A=.; 4001; B; CMSG
+	TEXT "(_";	B=.; 4001; A; CMTP
+	TEXT "\_";	A=.; 1; B; CMTL
 	TEXT "DNEGATE_";B=.; 4; A; DNEG
 	TEXT "TUCK";	A=.; 2; B; TUCK
 	TEXT "DABS";	B=.; 2; A; DABS
