@@ -745,6 +745,7 @@ FSTORE,	0
 	.SBTTL Comparisons
 
 	PAGE
+// ( a b -- a )  Difference in AC
 COMP,	0		/ Subtract for comparison
 	TAD I SP
 	CIA
@@ -975,6 +976,28 @@ TODBL,	0
 NEG$:	CLA CMA		/ Append -1
 	JMP .-3
 
+// MAX ( a b -- n )  Whichever is greater
+MAX,	0
+	TAD I SP	/ Set B aside
+	DCA HIGH
+	JMS COMP	/ Subtract B from A
+	SMA CLA
+	JMP I MAX	/ A was greater
+	TAD HIGH	/ B was greater
+	DCA I SP
+	JMP I MAX
+
+// MIN ( a b -- n )  Whichever is less
+MIN,	0
+	TAD I SP	/ Set B aside
+	DCA HIGH
+	JMS COMP	/ Subtract B from A
+	SPA CLA
+	JMP I MIN	/ A was less
+	TAD HIGH	/ B was less
+	DCA I SP
+	JMP I MIN
+
 	PAGE
 SKPIP,	0
 	TAD IP		/ Skip IP ahead
@@ -1097,6 +1120,20 @@ STORE,	0
 	DCA I LOW
 	CDF TIB
 	JMP I STORE
+
+// D= ( d1 d2 -- f )	Compare double
+DEQL,	0     / d1l d1h d2l d2h
+	JMS ROT    / d1L d2L d2H d1H
+	JMS EQL	    / d1L d2L f
+	TAD I SP
+	POP	    / d1L d2L
+	SNA CLA
+	JMP F1$		/ Highs Not equal
+	JMS EQL	/ flag
+	JMP I DEQL
+F1$:	POP   / d1L
+	DCA I SP	/ flag
+	JMP I DEQL
 
 	PAGE
 MOVE,	0		/ ( adr1 adr2 len -- )
@@ -1385,8 +1422,15 @@ LOOP$:	CLL
 	DCA I SP
 	JMP I RSHIFT
 
+// Simple integer division.
+DIV,	0
+	JMS DIVMOD	/ Use /MOD
+	JMS SWAP	/ Throw away remainder
+	POP
+	JMP I DIV
+	
 	PAGE
-// D* ( d n -- d )
+// D* ( d n -- d ) Multiple double by single
 DMULT,	0
 	JMS DUP		/ dlo dhi n n
 	JMS MROT	/ dlo n dhi n
@@ -2891,6 +2935,10 @@ ZERO,	0	/ For faking a return
 	.ENABLE SIXBIT
 /	.NOLIST
 	B=0
+	TEXT "MAX_";	A=.; 2; B; MAX
+	TEXT "MIN_";	B=.; 2; A; MIN
+	TEXT "D=";	A=.; 1; B; DEQL
+	TEXT "/_";	B=.; 1; A; DIV
 	TEXT ".(";	A=.; 4001; B; CMSG
 	TEXT "(_";	B=.; 4001; A; CMTP
 	TEXT "\_";	A=.; 1; B; CMTL
