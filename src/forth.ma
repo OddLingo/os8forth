@@ -998,6 +998,41 @@ MIN,	0
 	DCA I SP
 	JMP I MIN
 
+// Generate non-counting loop structures.
+// WHILE ( f -- )  Jump to BEGIN if nonzero
+WHILE,	0
+	LAYOP XJMPT
+	JMS GENBK
+	JMP I WHILE
+
+// Generate the relative address for a jump
+// back to location on the compile-time stack.
+GENBK,	0
+	TAD HERE	/ Where are we now?
+	CIA
+	TAD I SP	/ Subtract goal
+	POP
+	JMS LAYDN	/ Lay the difference
+	JMP I GENBK
+
+// UNTIL ( n -- )  Jump to BEGIN if zero
+UNTIL,	0
+	LAYOP XJMPF
+	JMS GENBK
+	JMP I UNTIL
+
+// BEGIN ( -- n ) Mark top of loop
+BEGIN,	0
+	TAD HERE
+	PUSH
+	JMP I BEGIN
+
+// AGAIN ( n -- ) Jump to BEGIN 
+AGAIN,	0
+	LAYOP XJMP
+	JMS GENBK
+	JMP I AGAIN
+
 	PAGE
 SKPIP,	0
 	TAD IP		/ Skip IP ahead
@@ -2934,7 +2969,8 @@ ZERO,	0	/ For faking a return
 	.DISABLE FILL
 	.ENABLE SIXBIT
 /	.NOLIST
-	B=0
+	A=0
+	TEXT "WHILE_";	B=.; 4003; A; WHILE
 	TEXT "MAX_";	A=.; 2; B; MAX
 	TEXT "MIN_";	B=.; 2; A; MIN
 	TEXT "D=";	A=.; 1; B; DEQL
@@ -3057,15 +3093,11 @@ TIB,	*.+120
 	TEXT "(JMP)_"; XJMP=.; 3; XRSTOR; JUMP
 	TEXT "(JMPT)"; XJMPT=.; 3; XJMP; JUMPT
 	TEXT "(JMPF)"; XJMPF=.; 3; XJMPT; JUMPF
-	TEXT "AGAIN_"; B=.; 6003; XJMPF; 0
-	   XGENOP; XJMP;
-	   XHERE; XMINUS; XCOMA; 0
+	TEXT "AGAIN_"; B=.; 4003; XJMPF; AGAIN
 	TEXT "*/"; A=.; 1; B; MULDIV
 	TEXT "[']_";	B=.; 4002; A; TICK
-	TEXT "BEGIN_";A=.; 6003; B; 0
-	   XHERE; 0
-	TEXT "UNTIL_"; B=.; 6003; A; 0
-	   XGENOP; XJMPF; XHERE; XMINUS; XCOMA; 0
+	TEXT "BEGIN_";A=.; 4003; B; BEGIN
+	TEXT "UNTIL_"; B=.; 4003; A; UNTIL
 	TEXT "DO"; A=.; 4001; B; GENDO
 	TEXT "LOOP"; B=.; 4002; A; GLOOP
 	TEXT "IMMEDIATE_";A=.; 5; B; MAKIMM
