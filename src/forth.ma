@@ -43,7 +43,7 @@
 	JMS MARKFJ
 	.ENDM
 
-/ All machine code is in Field zero so IF register
+/ The Forth engine code is in Field zero so IF register
 / rarely changes. The dictionary and all interpreted
 / code and stacks are in Field 1.  Field 2 has
 / disk I/O routines.
@@ -83,7 +83,7 @@ HERE,	DCTEND	/ Start of free memory
 DICT,	XBYE	/ Start of dictionary chain
 STATE,	0	/ Compiling
 INJECT,	0	/ Interrupt execution
-SOURCE,	0	/ Where interpreter reads from
+SRCID,	0	/ Where interpreter reads from
 
 /// Temporary values
 TEXT3,	0	/ Non-autoinc pointers
@@ -133,7 +133,7 @@ NAMPAD,	0037	/ Padding for names
 WRDPTR,	WRDBUF
 SEEK6,	NAME6	/ Address of sought word
 TIBPTR,	TIB	/ Console input buffer
-TIBLEN,	0120	/ 80 characters max per line
+TIBLEN,	^D80	/ 80 characters max per line
 
 // Short routines used in many places.
 PUSHS,	0
@@ -207,15 +207,15 @@ RUN,	0
 NEXTOP,	CLA
 	TAD INJECT	/ Is there a pending EXECUTE?
 	SNA CLA
-	JMP NOINJ
+	JMP NOINJ$	/ No
 	DCA INJECT	/ Yes, clear flag
-	JMP UNWIND	/ And take xt from stack
+	JMP UNWND$	/ And take xt from stack
 
-NOINJ,	TAD IP		/ IP=0 means stop
+NOINJ$:	TAD IP		/ IP=0 means stop
 	SNA CLA
 	JMP I RUN
 
-UNWIND,	JMS UNEXEC	/ Unwind EXECUTE calls
+UNWND$:	JMS UNEXEC	/ Unwind EXECUTE calls
 	TAD I IP	/ Fetch next instruction
 	SNA
 	JMP RETURN	/ Zero opcode means return
@@ -335,13 +335,12 @@ LLOOP$:	TAD TIBPTR	/ Read a line
 WLOOP$:	TAD INOFF
 	CIA
 	TAD LINLEN
-	SPA
+	SPA CLA
 	JMP END$ 	/ Overflowed
-	CLA
 	JMS BL		/ Push Space delimiter
 	JMS WORD	/ Get next word, caddr on stack
 	TAD I WRDPTR	/ Get anything?
-	SNA
+	SNA CLA
 	JMP PREND$  	/ No.
 
 	// Check dictionary first because there are
@@ -353,26 +352,23 @@ WLOOP$:	TAD INOFF
 	JMP NUMCK$	/ Undefined word or number
 	CLA
 	TAD STATE	/ Compiling or interpreting?
-	SZA
+	SZA CLA
 	JMP COMP$
 	//?? Error if IMMFLG set here
 	JMS DOEXEC	/ Execute word on stack now
 	JMP WLOOP$	/ Get another word
 
-COMP$:	CLA		/ Compile it
-	TAD I SP	/ Get address of dict entry
+COMP$:	TAD I SP	/ Get address of dict entry
 	DCA T1
 	TAD I T1	/ Get header word
-	SPA
+	SPA CLA
 	JMP IMM$	/ It is immediate
-	CLA
 	POP
 	TAD T1		/ Lay down the xt
 	JMS LAYDN	/ Add to current definition
 	JMP WLOOP$	/ Get another word
 
-IMM$:	CLA		/ Execute now
-	JMS DOEXEC
+IMM$:	JMS DOEXEC	/ Execute now
 	JMP WLOOP$
 
 PREND$:	POP
@@ -380,7 +376,7 @@ END$:	CLA
 	TAD STATE	/ All done, compiling?
 	SZA CLA
 	JMP LLOOP$	/ Yes, get another line
-	TAD SOURCE	/ Reading a file?
+	TAD SRCID	/ Reading a file?
 	SZA CLA
 	JMP LLOOP$	/ Yes, get another line
 	JMS MSG		/ No, say "OK".
@@ -428,7 +424,7 @@ RESET,	0
 	DCA IP		/ Nothing is running
 	DCA STATE	/ Not compiling
 	DCA INJECT	/ No pending EXECUTE
-	DCA SOURCE	/ Reading from console
+	DCA SRCID	/ Reading from console
 	JMP I RESET
 
 TWODIV,	0     / Arithmetic shift right
@@ -594,7 +590,7 @@ FETCH2,	0
 // Receive a string of at most +n1 characters.
 	.EXTERNAL	$INPUT
 ACCEPT,	0
-	TAD SOURCE	/ Non-zero src means a file
+	TAD SRCID	/ Non-zero src means a file
 	SZA
 	JMP FILE$
 	/ From console.  Use library routine.
@@ -627,12 +623,12 @@ FILE$:	PUSH		/ File id on stack
 
 EOF$:	POP	/ Do not need flag
 	POP   	/ Do not need length
-	TAD SOURCE	/ Close input file
+	TAD SRCID	/ Close input file
 	PUSH
 	JMS FILCLS
 	POP		/ Ignore status
 	CLA
-	DCA SOURCE	/ Back to console
+	DCA SRCID	/ Back to console
 	PUSH 		/ Look like an empty line
 	JMP I ACCEPT
 
@@ -888,6 +884,11 @@ PAD,	0		/ Dynamic work area above HERE
 	JMP I PAD
 
 	PAGE
+MOD,	0
+	JMS DIVMOD
+	POP
+	JMP I MOD
+
 DIVMOD,	0		/ Divide with remainder
 	TAD I SP
 	DCA MODBY$
@@ -963,7 +964,7 @@ SQUOT,	0
 
 // EXIT a zero opcode means return from word.
 EXIT,	0
-	LAYOP 0
+	JMS LAYDN
 	JMP I EXIT
 
 // S>D Convert to double integer
@@ -1602,6 +1603,12 @@ COLON,	0
 	DCA I CPTR
 	JMP I COLON
 
+// SOURCE ( -- addr len )	Get input descriptor
+SOURCE,	0
+	PUSH TIBPTR
+	PUSH LINLEN
+	JMP I SOURCE
+
 	PAGE
 AVAIL,	0		/ Get available memory
 	TAD HERE
@@ -1712,7 +1719,7 @@ CLASS,	0
 	TAD ASPACE
 	CIA
 	TAD T1
-	SPA
+	SPA CLA
 	JMP I CLASS	/ Control, skip return
 	ISZ CLASS
 	JMP I CLASS	/ Else double skip
@@ -1751,7 +1758,7 @@ POP$:	POP
 MARKFJ,	0
 	TAD HERE
 	PUSH
-	LAYOP 0
+	JMS LAYDN
 	JMP I MARKFJ
 
 GENIF,	0
@@ -1792,11 +1799,11 @@ JUMP,	0		/ Adjust IP by a signed constant
 JUMPT,	0		/ Adjust IP if TOS true
 	TAD I SP
 	POP
-	SZA
+	SZA CLA
 	JMP YES$
 	ISZ IP		/ False so skip the adjustment
 	JMP I JUMPT
-YES$:	CLA		/ True so do the adjustment
+YES$:	/ True so do the adjustment
 	TAD I IP	/ Get adjustment
 	TAD IP		/ Add to old IP
 	DCA IP		/ Save it
@@ -2094,10 +2101,6 @@ NUM$:	ISZ SKPNUM	/ Is numeric so skip return
 NOT$:	CLA
 	JMP I SKPNUM
 	
-LPEND,	0
-	ISZ RSP
-	HLT	//??
-
 SWITCH,	0		/ Read the console switches
 	LAS
 	PUSH
@@ -2226,6 +2229,10 @@ FOOUT,	0
 // is built right to left so we use 16 words
 // starting at PAD.  Double value D1 is on the stack.
 FOINIT,	0
+	DCA HIGH
+	TAD I SP	/ Scaling required?
+	SNA CLA
+	JMP ALLOC$
 	/ Pre-scale the value by 1000
 	PUSH SCALE
 	JMS FMMOD	/ rem quo
@@ -2235,7 +2242,7 @@ FOINIT,	0
 	/ Stack is now D1 MOD SCALE and HIGH
 	/ contains D1 / SCALE.
 	/ Allocate buffer above PAD.
-	JMS PAD
+ALLOC$:	JMS PAD
 	TAD (20
 	POP FOPTR	/ Set top end
 	DCA FOLEN	/ Zero length
@@ -2542,7 +2549,7 @@ FILWRL,	0   / Write a line
 // Change SOURCE-ID.  The real work is in ACCEPT.
 FILINC,	0
 	TAD I SP
-	DCA SOURCE
+	DCA SRCID
 	POP
 	JMP I FILINC
 
@@ -2609,7 +2616,7 @@ DOES,	0
 	TAD (FTHFLG)
 	DCA I NEWORD
 	LAYOP XDOES	/ Make new word call part 2
-	LAYOP 0		/ then return
+	JMS LAYDN	/ then return
 	LAYOP XPAR	/ Push paramater address
 	JMP I DOES
 
@@ -2950,6 +2957,9 @@ CMSG,	0
 WRDBUF,	ZBLOCK 20	/ Assemble ASCII token here
 NAME6,	ZBLOCK 10	/ Sought word here in SIXBIT
 ZERO,	0	/ For faking a return
+// Terminal Input Buffer 80 chars
+	.GLOBAL TIB
+TIB,	*.+^D80
 
 / Dictionary of built-in words.  Each entry is at least
 / 4 words long so 32 fit on a memory page or 1024 in
@@ -2969,9 +2979,9 @@ ZERO,	0	/ For faking a return
 	.DISABLE FILL
 	.ENABLE SIXBIT
 /	.NOLIST
-	A=0
-	TEXT "WHILE_";	B=.; 4003; A; WHILE
-	TEXT "MAX_";	A=.; 2; B; MAX
+A=0
+TEXT "MOD_";	B=.;	2; A; MOD
+TEXT "MAX_";	A=.; 2; B; MAX
 	TEXT "MIN_";	B=.; 2; A; MIN
 	TEXT "D=";	A=.; 1; B; DEQL
 	TEXT "/_";	B=.; 1; A; DIV
@@ -3040,14 +3050,11 @@ ZERO,	0	/ For faking a return
 	TEXT "POSTPONE";A=.; 4004; B; PSTPON
 	TEXT "2@";	B=.; 1; A; FETCH2
 	TEXT "2!";	A=.; 1; B; STORE2
-	TEXT "SOURCE-ID_"; B=.; 5; A; SYSCON; SOURCE
+	TEXT "SOURCE-ID_"; B=.; 5; A; SYSCON; SRCID
 	TEXT "INCLUDE-FILE"; XINCL=.; 6; B; FILINC
 	TEXT "FLUSH-FILE"; B=.; 5; XINCL; FILFLU 
 	TEXT "CREATE-FILE_"; A=.; 6; B; FILCRE 
-// Terminal Buffers 80 chars each
-	TEXT "TIB_";   B=.; 2; A; DOVAR
-	.GLOBAL TIB
-TIB,	*.+120
+	TEXT "SOURCE"; B=.; 3; A; SOURCE
 	TEXT "2/";	A=.; 1; B; TWODIV
 	TEXT "1-";	B=.; 1; A; MINUS1
 	TEXT "ALIGNED_";A=.; 4; B; IGNORE
@@ -3127,15 +3134,15 @@ TIB,	*.+120
 	TEXT "PAD_";	B=.;	2; A; PAD
 	TEXT "/MOD";	A=.;	2; B; DIVMOD
 	TEXT "I_";	B=.; 1; A; LPIDX
-	TEXT "DONE";	A=.; 2; B; LPEND
-	TEXT "CR";  XCR=.; 1; A; CRLF
+	TEXT "WHILE_";	A=.; 4003; B; WHILE
+	TEXT "CR";	XCR=.; 1; A; CRLF
 	TEXT "TYPE";	XTYPE=.; 2; XCR; TYPE
 	TEXT "BL";	B=.; 1; XTYPE; SYSCON; ASPACE
 	TEXT "WITHIN";A=.; 3; B; WITHIN
 	TEXT "DROP";	XDROP=.; 2; A; DROP
 	TEXT "2DROP_"; X2DROP=.; 3; XDROP; DROP2
 	TEXT "DECIMAL_"; A=.; 4; X2DROP; SET10
-	TEXT "OCTAL_"; B=.; 3; A; SET8
+	TEXT "OCTAL_";	 B=.; 3; A; SET8
 	TEXT "WORDS_";	A=.; 3; B; WORDS
 	TEXT "CELL";	B=.; 2; A; IGNORE
 	TEXT "CELL+_";	A=.; 3; B; IGNORE

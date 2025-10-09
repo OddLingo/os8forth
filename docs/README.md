@@ -75,3 +75,15 @@ This will create `SYS:FORTH.SV` as well as the linker map `FORTH.MP` and various
 
         .R FORTH
 
+## Useful code samples
+Due to space constraints, many useful non-core words have not been implemented, but they are easily added if you need them.  Just put the definitions into the `INIT.FS` file.
+
+### Dumping memory
+This dumps a range of words in memory field 1, which is the dictionary and stack.
+
+      : P12 ( u -- ) OCTAL SPACE 0 <# # # # # #> TYPE ;
+      : DUMP ( addr len -- )
+          SWAP DUP ROT + SWAP DO
+          I P12 I 1 X@ P12 CR LOOP ;
+
+
