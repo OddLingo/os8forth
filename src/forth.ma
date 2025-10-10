@@ -436,6 +436,14 @@ TWODIV,	0     / Arithmetic shift right
 	DCA I SP
 	JMP I TWODIV
 
+// LITERAL (C n -- ) Create a literal at compile time
+GENLIT,	0
+	LAYOP XLIT	/ Literal at runtime
+	TAD I SP
+	POP
+	JMS LAYDN
+	JMP I GENLIT
+
 	PAGE
 MINUS1,	0     / 1- Subtract one
 	STA
@@ -1077,7 +1085,7 @@ SET8,	0		/ Runtime for OCTAL
 	JMP I SET8
 	
 SYSVAR,	0		/ runtime for System variables
-	TAD DPTR
+	TAD I DPTR
 	PUSH
 	JMP I SYSVAR
 
@@ -2979,7 +2987,8 @@ TIB,	*.+^D80
 	.DISABLE FILL
 	.ENABLE SIXBIT
 /	.NOLIST
-A=0
+B=0
+TEXT "LITERAL_";A=.; 4004; B; GENLIT
 TEXT "MOD_";	B=.;	2; A; MOD
 TEXT "MAX_";	A=.; 2; B; MAX
 	TEXT "MIN_";	B=.; 2; A; MIN
