@@ -22,6 +22,10 @@
 	ISZ SP
 	.ENDM
 
+	.MACRO CALL RTN
+	JMS I [RTN]
+	.ENDM
+
 	.MACRO LAYOP OP
 	JMS LAYLIT
 	OP
@@ -99,7 +103,7 @@ DPTR,	0	/ address of current dictionary word
 CPTR,	0	/ Address of code pointer
 CHAR,	0	/ latest character read
 CURENT,	0	/ Current executing word
-PADSPC,	20	/ Distance PAD is above HERE
+PADSPC,	^D20	/ Distance PAD is above HERE
 THISW,	0
 WRDLEN,	0
 INOFF,	0	/ >IN offset in characters from the
@@ -171,9 +175,19 @@ LAYDN,	0
 	ISZ HERE
 	JMP I LAYDN
 
+LAYLIT,	0		/ Lay a literal and skip it
+	CLA
+	CDF .		/ Fetch from instruction space
+	TAD I LAYLIT
+	CDF TIB
+	JMS LAYDN
+	ISZ LAYLIT
+	JMP I LAYLIT
+
 	.RSECT ENGINE
 	.SBTTL Startup
 	.ENABLE SIXBIT
+
 
 /// Start execution here
 	.START .
@@ -183,8 +197,7 @@ INIT,	IOF		/ No interrupts
 	KCC		/ Clear device flags
 	TCF
 	CDF TIB	/ Indirect references to F1
-	TAD (XINIT)	/ Run INIT word
-	PUSH
+	PUSH (XINIT)	/ Run INIT word
 	JMS DOEXEC
 RESUME,	JMS QUIT	/ Start interpreter
 	HLT	
@@ -192,7 +205,7 @@ RESUME,	JMS QUIT	/ Start interpreter
 BYE,	0		/ Exit to OS/8
 	JMS MSG
 	TEXT \GOODBYE@\
-	JMS CRLF
+	CALL CRLF
 	CDF CIF
 	JMP 7600
 
@@ -287,13 +300,10 @@ DOEXEC,	0
 INJ$:	ISZ INJECT	/ Set flag to Interrupt RUN
 	JMP I DOEXEC
 
+// ABORT stops execution and clears stacks.
 ABORT,	0
-	DCA IP		/ Force hard stop
+	JMS RESET
 	JMP I ABORT
-
-	// Execution token of zero means stop.
-STOP,	JMS CRLF
-	JMP I RUN
 
 POPS,	0
 	ISZ SP
@@ -317,12 +327,8 @@ POPS,	0
 //    has been completed, and no ambiguous condition
 //    exists.
 QUIT,	0
-	JMS MSG
-	TEXT \> \
-LLOOP$:	TAD TIBPTR	/ Read a line
-	PUSH
-	TAD TIBLEN	/ Max length
-	PUSH
+LLOOP$:	PUSH TIBPTR	/ Read a line
+	PUSH TIBLEN	/ Max length
 	DCA INOFF	/ Zero input offset
 	JMS ACCEPT
 	TAD I SP	/ Actual input length
@@ -338,19 +344,18 @@ WLOOP$:	TAD INOFF
 	SPA CLA
 	JMP END$ 	/ Overflowed
 	JMS BL		/ Push Space delimiter
-	JMS WORD	/ Get next word, caddr on stack
+	CALL WORD	/ Get next word, caddr on stack
 	TAD I WRDPTR	/ Get anything?
 	SNA CLA
 	JMP PREND$  	/ No.
 
 	// Check dictionary first because there are
 	// words that start with a digit.
-	JMS FIND	/ caddr 0 | xt 1 | xt -1
+	CALL FIND	/ caddr 0 | xt 1 | xt -1
 	TAD I SP
 	POP		/ Execution token is at TOS
-	SNA		/ Found it?
+	SNA CLA		/ Found it?
 	JMP NUMCK$	/ Undefined word or number
-	CLA
 	TAD STATE	/ Compiling or interpreting?
 	SZA CLA
 	JMP COMP$
@@ -381,7 +386,7 @@ END$:	CLA
 	JMP LLOOP$	/ Yes, get another line
 	JMS MSG		/ No, say "OK".
 	TEXT \ OK\
-	JMS CRLF
+	CALL CRLF
 	JMP LLOOP$	/ Get another line
 
 	// If first char is numeric, use NUMLO to
@@ -885,7 +890,8 @@ OROP,	0		/ Bitwise OR by De'Morgan's law
 	DCA I SP
 	JMP I OROP
 
-PAD,	0		/ Dynamic work area above HERE
+// PAD ( -- addr ) Address of a dynamic work area
+PAD,	0
 	TAD HERE
 	TAD PADSPC
 	PUSH
@@ -954,15 +960,6 @@ GENOP,	0		/ Lay down a literal at runtime
 	JMS LAYDN
 	ISZ IP
 	JMP I GENOP
-
-LAYLIT,	0		/ Lay a literal and skip it
-	CLA
-	CDF .		/ Fetch from instruction space
-	TAD I LAYLIT
-	CDF TIB
-	JMS LAYDN
-	ISZ LAYLIT
-	JMP I LAYLIT
 
 // S" Push address and count of a literal string
 SQUOT,	0
@@ -1167,7 +1164,7 @@ STORE,	0
 
 // D= ( d1 d2 -- f )	Compare double
 DEQL,	0     / d1l d1h d2l d2h
-	JMS ROT    / d1L d2L d2H d1H
+	CALL ROT    / d1L d2L d2H d1H
 	JMS EQL	    / d1L d2L f
 	TAD I SP
 	POP	    / d1L d2L
@@ -1393,9 +1390,9 @@ DIVSR$:	0
 // Multiply then divide with 24-bit intermediary.
 // M*
 MULDIV,	0		/ ( a b c -- a*b/c )
-	JMS MROT	/ c a b
+	CALL MROT	/ c a b
 	JMS MSTAR	/ c abd
-	JMS ROT	/ abd c
+	CALL ROT	/ abd c
 	JMS FMMOD	/ a*b/c
 	JMS SWAP
 	POP
@@ -1428,11 +1425,11 @@ MINUS,	0		/ ( a b -- a-b )
 // no such word exists.
 TICK,	0
 	JMS BL
-	JMS WORD
+	CALL WORD
 	TAD I WRDPTR
 	SNA CLA
 	JMP NOPE$
-	JMS FIND
+	CALL FIND
 	POP
 	JMP I TICK
 NOPE$:	PUSH
@@ -1477,24 +1474,29 @@ DIV,	0
 // D* ( d n -- d ) Multiple double by single
 DMULT,	0
 	JMS DUP		/ dlo dhi n n
-	JMS MROT	/ dlo n dhi n
+	CALL MROT	/ dlo n dhi n
 	JMS MSTAR	/ dlo n plo phi
 	POP 		/ dlo n plo
-	JMS MROT	/ plo dlo n
+	CALL MROT	/ plo dlo n
 	JMS MSTAR	/ plo plo phi
-	JMS ROT		/ plo phi plo
+	CALL ROT		/ plo phi plo
 	JMS PLUS	/ plo phi
 	JMP I DMULT
 
 	.SBTTL Number conversions
 // U. ( n -- ) Print unsigned value
 UDOT,	0		/ Print a numeric value
-	PUSH		/ Double unsigned
-	JMS FOINIT	/ Use Formatted conversion
-UDOT2,	JMS FONUM	/ Output all digits
-	JMS FODONE
+	JMS UNUM
 	JMS TYPE
 	JMP I UDOT
+
+// Convert an unsigned value to text
+UNUM,	0
+ 	PUSH		/ Double unsigned
+	JMS FOINIT	/ Use Formatted conversion
+	JMS FONUM	/ Output all digits
+	JMS FODONE
+	JMP I UNUM
 
 // D. ( d -- ) Print double value
 DDOT,	0
@@ -1514,7 +1516,7 @@ DABS,	0
 // TUCK ( n1 n2 -- n2 n1 n2 )
 TUCK,	0
 	JMS DUP
-	JMS MROT
+	CALL MROT
 	JMP I TUCK
 
 // . ( nn - )) Print signed value.
@@ -1524,7 +1526,7 @@ DOT,	0
 	JMS TODBL
 DOTGO,	JMS FOINIT	/ Init formatting
 	JMS FONUM
-	JMS ROT		/ Get the signed value back
+	CALL ROT	/ Get the signed value back
 	JMS SIGN	/ Emit minus sign
 	JMS FODONE
 	JMS TYPE
@@ -1556,7 +1558,7 @@ CREATE,	0
 	DCA NEWORD	/ We start building here
 
 	JMS BL		/ Push SPACE as delimiter
-	JMS WORD	/ Put ASCII name in WRDBUF
+	CALL WORD	/ Put ASCII name in WRDBUF
 	JMS PAKNAM	/ Convert to SIXBIT
 
 	TAD I SEEK6	/ Sixbit word count
@@ -1674,7 +1676,7 @@ NXTIN,	0
 // characters other than the delimiter, the resulting
 // string has a zero length. A program may replace
 // characters within the string.
-WORD,	0		/ Parse one word
+WORD,	0
 	TAD I SP
 	CIA
 	DCA CHAR	/ Save the negative delimiter
@@ -1748,8 +1750,8 @@ COUNTS,	0
 // do not run at compile time.
 PSTPON,	0
 	JMS BL		/ Lookup next word
-	JMS WORD
-	JMS FIND	/ S: xt 1
+	CALL WORD
+	CALL FIND	/ S: xt 1
 	TAD I SP
 	POP
 	SNA CLA		/ Found it?
@@ -2136,7 +2138,7 @@ LOOP$:	JMS SPACE
 	DCA SP$
 	ISZ LIMIT$
 	JMP LOOP$
-	JMS CRLF
+	CALL CRLF
 	JMP I DOTS
 SP$:	0     / Private stack scanner
 LIMIT$:	0
@@ -2172,7 +2174,7 @@ LOOP$:	JMS PNAME	/ Print this name
 	JMP NEXT$
 	TAD (-72	/ Start new line
 	DCA THISW
-	JMS CRLF
+	CALL CRLF
 	JMP BUMP$
 NEXT$:	JMS SPACE
 BUMP$:	ISZ CURENT	/ Find link word
@@ -2202,7 +2204,7 @@ LOOP$:	TAD I TEXT3	/ Fetch word of two chars
 	TAD T1
 	BSW		/ Look at left 6 bits
 	ISZ COUNT
-	JMS P1SIX
+	CALL P1SIX
 	TAD T1		/ Now do right half
 	AND MASK6
 	TAD (-37	/ But stop at 037
@@ -2210,14 +2212,14 @@ LOOP$:	TAD I TEXT3	/ Fetch word of two chars
 	JMP I PNAME
 	TAD NAMPAD	/ Correct it
 	ISZ COUNT
-	JMS P1SIX
+	CALL P1SIX
 	ISZ TEXT3
 	ISZ LIMIT	/ Count down
 	JMP LOOP$
 	JMP I PNAME
 MISS$:	ERROR ME	/ Trying to print missing entry
 	JMP I PNAME
-
+0
 
 // Add a character to the front of the PAD output
 // area, working down.
@@ -2601,7 +2603,7 @@ ABTQ,	0	/ ABORT"
 // CHAR: Parse a character and push it
 PSHCH,	0
 	JMS BL
-	JMS WORD
+	CALL WORD
 	POP
 	TAD WRDBUF+1
 	PUSH
@@ -2610,7 +2612,7 @@ PSHCH,	0
 // [CHAR]: Push a character during compile
 CPSHCH,	0
 	JMS BL
-	JMS WORD
+	CALL WORD
 	POP
 	LAYOP XLIT
 	TAD WRDBUF+1
@@ -2786,6 +2788,7 @@ GENEC,	0
 
 SPACES,	0
 	TAD I SP
+	POP
 	CIA
 	DCA LIMIT
 LOOP$:	JMS SPACE
@@ -2796,11 +2799,11 @@ LOOP$:	JMS SPACE
 	PAGE
 FORGET,	0
 	JMS BL		/ Push Space delimiter
-	JMS WORD	/ Get next word, caddr on stack
+	CALL WORD	/ Get next word, caddr on stack
 	TAD I WRDPTR	/ Get anything?
 	SNA
 	JMP I FORGET	/ No
-	JMS FIND	/ caddr 0 | xt 1 | xt -1
+	CALL FIND	/ caddr 0 | xt 1 | xt -1
 	TAD I SP
 	POP		/ Execution token is at TOS
 	SNA CLA
@@ -2866,12 +2869,12 @@ LOOP$:	TAD I T1
 	SNA
 	JMP I TYPE6
 	BSW		/ Print left half
-	JMS P1SIX
+	CALL P1SIX
 	TAD I T1	/ Do right half
 	AND MASK6
 	SNA
 	JMP I TYPE6	/ Stop at zero
-	JMS P1SIX
+	CALL P1SIX
 	ISZ T1
 	ISZ LIMIT
 	JMP LOOP$
@@ -2887,8 +2890,8 @@ RECOVR,	0
 	TAD I RECOVR	/ 2-char code
 	CDF TIB
 	DCA CHAR
-	JMS P2SIX
-	JMS CRLF
+	CALL P2SIX
+	CALL CRLF
 	JMP RESUME
 
 // LEAVE becomes an unconditional jump that is
@@ -2946,7 +2949,7 @@ CMTL,	0
 // Parenthesized comment.  Skip to right paren.
 CMTP,	0
 	PUSH ("))
-	JMS PARSE
+	CALL PARSE
 	POP
 	POP
 	JMP I CMTP
@@ -2954,9 +2957,22 @@ CMTP,	0
 // .( Immediate form of ."
 CMSG,	0
 	PUSH (")
-	JMS PARSE	/ addr len
+	CALL PARSE	/ addr len
 	JMS TYPE
 	JMP I CMSG
+
+// U.R ( u1 u2 -- ) Print u1 right-justified in u2
+// spaces.
+UDOTR,	0
+	POP CMSG	/ Save width
+	JMS UNUM
+	TAD I SP	/ Calc padding width
+	CIA
+	TAD CMSG
+	PUSH
+	JMS SPACES	/ Emit padding
+	JMS TYPE	/ Emit digits
+	JMP I UDOTR
 
 .SBTTL  Built-in word definitions
 
@@ -2965,9 +2981,9 @@ CMSG,	0
 WRDBUF,	ZBLOCK 20	/ Assemble ASCII token here
 NAME6,	ZBLOCK 10	/ Sought word here in SIXBIT
 ZERO,	0	/ For faking a return
-// Terminal Input Buffer 80 chars
 	.GLOBAL TIB
-TIB,	*.+^D80
+TIB=.
+	*.+^D80	/ Terminal Input Buffer
 
 / Dictionary of built-in words.  Each entry is at least
 / 4 words long so 32 fit on a memory page or 1024 in
@@ -2987,205 +3003,205 @@ TIB,	*.+^D80
 	.DISABLE FILL
 	.ENABLE SIXBIT
 /	.NOLIST
-B=0
+A=0
+TEXT "U.R_";	B=.; 2;	A; UDOTR
 TEXT "LITERAL_";A=.; 4004; B; GENLIT
 TEXT "MOD_";	B=.;	2; A; MOD
 TEXT "MAX_";	A=.; 2; B; MAX
-	TEXT "MIN_";	B=.; 2; A; MIN
-	TEXT "D=";	A=.; 1; B; DEQL
-	TEXT "/_";	B=.; 1; A; DIV
-	TEXT ".(";	A=.; 4001; B; CMSG
-	TEXT "(_";	B=.; 4001; A; CMTP
-	TEXT "\_";	A=.; 1; B; CMTL
-	TEXT "DNEGATE_";B=.; 4; A; DNEG
-	TEXT "TUCK";	A=.; 2; B; TUCK
-	TEXT "DABS";	B=.; 2; A; DABS
-	TEXT "D+";	A=.; 1; B; DPLUS
-	TEXT "D.";	B=.; 1; A; DDOT
-	TEXT "M+";	A=.; 1; B; MPLUS
-	TEXT "M*";	B=.; 1; A; MSTAR
-	TEXT "D*";	A=.; 1; B; DMULT
-	TEXT "-ROT";	B=.; 2; A; MROT
-	TEXT "UM*_";	A=.; 2; B; UMULT 
-	TEXT "ABS_";	B=.; 2; A; ABS
-	TEXT "U.";	A=.; 1; B; UDOT
-	TEXT "SIGN";	B=.; 2; A; SIGN
-	TEXT "#S";	A=.; 1; B; FONUM
-	TEXT "FM/MOD";	B=.; 3; A; FMMOD
-	TEXT "HOLD";	A=.; 2; B; HOLD
-	TEXT "S>D_";	B=.; 2; A; TODBL
-	TEXT "<#";	A=.; 1; B; FOINIT
-	TEXT "#>";	B=.; 1; A; FODONE
-	TEXT "#_";	A=.; 1; B; FODIG
-	TEXT "LEAVE_";	B=.; 4003; A; GENLV 
-	TEXT "(L+)";	XLPPBO=.; 2; B; BOTLPP
-	TEXT "(LX)";	XLPXIT=.; 2; XLPPBO; LPXIT
-	TEXT "(LP)";	XLPBOT=.; 2; XLPXIT; BOTLP
-	TEXT "J_";	A=.; 1; B; LPJDX
-	TEXT "EXIT"; B=.; 4002; A; EXIT
-	TEXT \.6"_\; A=.; 4002; B; DQUOT6
-	TEXT "FORGET"; B=.; 3; A; FORGET
-	TEXT "INIT"; XINIT=.; 2002; B; .+1
+TEXT "MIN_";	B=.; 2; A; MIN
+TEXT "D=";	A=.; 1; B; DEQL
+TEXT "/_";	B=.; 1; A; DIV
+TEXT ".(";	A=.; 4001; B; CMSG
+TEXT "(_";	B=.; 4001; A; CMTP
+TEXT "\_";	A=.; 1; B; CMTL
+TEXT "DNEGATE_";B=.; 4; A; DNEG
+TEXT "TUCK";	A=.; 2; B; TUCK
+TEXT "DABS";	B=.; 2; A; DABS
+TEXT "D+";	A=.; 1; B; DPLUS
+TEXT "D.";	B=.; 1; A; DDOT
+TEXT "M+";	A=.; 1; B; MPLUS
+TEXT "M*";	B=.; 1; A; MSTAR
+TEXT "D*";	A=.; 1; B; DMULT
+TEXT "-ROT";	B=.; 2; A; MROT
+TEXT "UM*_";	A=.; 2; B; UMULT 
+TEXT "ABS_";	B=.; 2; A; ABS
+TEXT "U.";	A=.; 1; B; UDOT
+TEXT "SIGN";	B=.; 2; A; SIGN
+TEXT "#S";	A=.; 1; B; FONUM
+TEXT "FM/MOD";	B=.; 3; A; FMMOD
+TEXT "HOLD";	A=.; 2; B; HOLD
+TEXT "S>D_";	B=.; 2; A; TODBL
+TEXT "<#";	A=.; 1; B; FOINIT
+TEXT "#>";	B=.; 1; A; FODONE
+TEXT "#_";	A=.; 1; B; FODIG
+TEXT "LEAVE_";	B=.; 4003; A; GENLV 
+TEXT "(L+)";	XLPPBO=.; 2; B; BOTLPP
+TEXT "(LX)";	XLPXIT=.; 2; XLPPBO; LPXIT
+TEXT "(LP)";	XLPBOT=.; 2; XLPXIT; BOTLP
+TEXT "J_";	A=.; 1; B; LPJDX
+TEXT "EXIT"; B=.; 4002; A; EXIT
+TEXT \.6"_\; A=.; 4002; B; DQUOT6
+TEXT "FORGET"; B=.; 3; A; FORGET
+TEXT "INIT"; XINIT=.; 2002; B; .+1
 	.ENABLE ASCII
 	  XSTR; 7; TEXT "INIT.FS"; XLOAD; 0
 	.ENABLE SIXBIT
-	TEXT "LOAD";	XLOAD=.; 2002; XINIT; .+1
+TEXT "LOAD";	XLOAD=.; 2002; XINIT; .+1
 	  XLIT; 0; XOPEN; XJMPF; 16; XSTR
 	  .ENABLE ASCII
 	  7; TEXT "NO INIT"
 	  XTYPE; XDROP; XJMP; 2; XINCL; 0
 	  .ENABLE SIXBIT
-	TEXT "SPACES";	B=.; 3; XLOAD; SPACES
-	TEXT "DICT";	A=.; 2; B; SYSCON; DICT
-	TEXT "(OF)";	XOF=.; 2; A; DOOF
-	TEXT "ENDCASE_";A=.; 4004; XOF; GENEC
-	TEXT "ENDOF_";	B=.; 4003; A; GENEOF
-	TEXT "CASE";	A=.; 4002; B; GENCAS
-	TEXT "OF";	B=.; 4001; A; GENOF
-	TEXT "PICK";	A=.; 2; B; PICK
-	TEXT "ROLL";	B=.; 2; A; ROLL
-	TEXT "(PAR";	XPAR=.; 2; B; PARADR
-	TEXT ">BODY_";	XBODY=.; 3; XPAR; TOBODY
-	TEXT "FILL";	A=.; 2; XBODY; FILL
-	TEXT "0<>_";	B=.; 2; A; NEQZ
-	TEXT "+!";	A=.; 1; B; PSTORE
-	TEXT "WORD";	B=.; 2; A; WORD
-	TEXT "(DS)";	XDOES=.; 2; B; DODOES
-	TEXT "DOES>_";	B=.; 4003; XDOES; DOES
-	TEXT "CHAR";	A=.; 2; B; PSHCH
-	TEXT "[CHAR]";	B=.; 4003; A; CPSHCH
-	TEXT \ABORT"\; A=.; 4003; B; ABTQ
-	TEXT "PARSE_";	B=.; 3; A; PARSE
-	TEXT "POSTPONE";A=.; 4004; B; PSTPON
-	TEXT "2@";	B=.; 1; A; FETCH2
-	TEXT "2!";	A=.; 1; B; STORE2
-	TEXT "SOURCE-ID_"; B=.; 5; A; SYSCON; SRCID
-	TEXT "INCLUDE-FILE"; XINCL=.; 6; B; FILINC
-	TEXT "FLUSH-FILE"; B=.; 5; XINCL; FILFLU 
-	TEXT "CREATE-FILE_"; A=.; 6; B; FILCRE 
-	TEXT "SOURCE"; B=.; 3; A; SOURCE
-	TEXT "2/";	A=.; 1; B; TWODIV
-	TEXT "1-";	B=.; 1; A; MINUS1
-	TEXT "ALIGNED_";A=.; 4; B; IGNORE
-	TEXT "CHARS_";	B=.; 3; A; IGNORE
-	TEXT "[_";	A=.; 4001; B; INTNOW
-	TEXT "]_";	B=.; 1; A; CMPNOW
-	TEXT "INVERT";	A=.; 3; B; INVERT
-	TEXT "+LOOP_";	B=.; 4003; A; GPLOOP
-	TEXT "LSHIFT";	A=.; 3; B; LSHIFT
-	TEXT "RSHIFT";	B=.; 3; A; RSHIFT
-	TEXT "OPEN-FILE_"; XOPEN=.; 5; B; FILOPN
-	TEXT "CLOSE-FILE"; XCLOSE=.; 5; XOPEN; FILCLS
-	TEXT "READ-FILE_"; A=.; 5; XCLOSE; FILRD
-	TEXT "READ-LINE_"; B=.; 5; A; FILRDL
-	TEXT "WRITE-FILE"; A=.; 5; B; FILWR
-	TEXT "WRITE-LINE"; B=.; 5; A; FILWRL
-	TEXT "R/O_"; A=.; 2; B; ISLIT; 0
-	TEXT "R/W_"; B=.; 2; A; ISLIT; 1
-	TEXT "X@"; A=.; 1; B; FFETCH
-	TEXT "X!"; B=.; 1; A; FSTORE
-	TEXT "CONSTANT"; A=.; 4; B; GENCON
-	TEXT "VARIABLE"; B=.; 4; A; GENVAR
-	TEXT "(CON)_";   A=.; 3; B; DOCON
-	TEXT "(VAR)_";   B=.; 3; A; DOVAR
-	TEXT "=_";	A=.; 1; B; EQL
-	TEXT ">_";	XGTR=.; 1; A; GTR
-	TEXT "<_";	A=.; 1; XGTR; LESS
-	TEXT ">=";	XGEQ=.; 1; A; GEQL
-	TEXT "<=";	XLEQL=.; 1; XGEQ; LEQL
-	TEXT "<>";	B=.; 1; XLEQL; NEQL
-	TEXT "0=";	A=.; 1; B; EQLZ
-	TEXT "0<";	B=.; 1; A; LESSZ
-	TEXT "0>";	A=.; 1; B; GTRZ
-	TEXT "0=";	B=.; 1; A; EQLZ
-
-	TEXT "IF";	XIF=.; 4001; B; GENIF
-	TEXT "ELSE";	XELSE=.; 4002; XIF; GENELS
-	TEXT "THEN";	XTHEN=.; 4002; XELSE; GENTHN
-	TEXT ">R";	XTOR=.; 1; XTHEN; PUSHR
-	TEXT "R>";	XPOPR=.; 1; XTOR; POPR
-	TEXT "R@";	XFETR=.; 1; XPOPR; RFET
-	TEXT "R!";	XRSTOR=.; 1; XFETR; RSTOR
-	TEXT "(JMP)_"; XJMP=.; 3; XRSTOR; JUMP
-	TEXT "(JMPT)"; XJMPT=.; 3; XJMP; JUMPT
-	TEXT "(JMPF)"; XJMPF=.; 3; XJMPT; JUMPF
-	TEXT "AGAIN_"; B=.; 4003; XJMPF; AGAIN
-	TEXT "*/"; A=.; 1; B; MULDIV
-	TEXT "[']_";	B=.; 4002; A; TICK
-	TEXT "BEGIN_";A=.; 4003; B; BEGIN
-	TEXT "UNTIL_"; B=.; 4003; A; UNTIL
-	TEXT "DO"; A=.; 4001; B; GENDO
-	TEXT "LOOP"; B=.; 4002; A; GLOOP
-	TEXT "IMMEDIATE_";A=.; 5; B; MAKIMM
-	TEXT "'_";	B=.;	1; A; TICK
-	TEXT "DEPTH_";	A=.;	3; B; DEPTH
-	TEXT ",_";	XCOMA=.; 1; A; COMMA
-	TEXT "EMIT";	B=.;	2; XCOMA; EMIT
-	TEXT "@_";	A=.; 	1; B; FETCH
-	TEXT "C@";	B=.; 	1; A; FETCH
-	TEXT "-_";	XMINUS=.; 1; B; MINUS
-	TEXT "+_";	XPLUS=.; 1; XMINUS; PLUS
-	TEXT "!_";	A=.; 	1; XPLUS; STORE
-	TEXT "C!";	B=.; 	1; A; STORE
-	TEXT "ABORT_";	XABORT=.; 3; B; ABORT
-	TEXT "FIND";	B=.; 	2; XABORT; FIND
-	TEXT "SWAP";	XSWAP=.; 2; B; SWAP
-	TEXT "KEY_";	B=.; 	2; XSWAP; KEY
-	TEXT ";_";	A=.;	4001; B; SEMI
-	TEXT "BASE";	B=.; 2; A; SYSVAR; BASE
-	TEXT "ACCEPT";  A=.; 3; B; ACCEPT
-	TEXT "CREATE";	B=.; 3; A; CREATE
-	TEXT "ALLOT_";	A=.; 3; B; ALLOT
-	TEXT "AND_";	B=.;	2; A; ANDOP
-	TEXT "OR";	A=.;	1; B; OROP
-	TEXT "ROT_";	B=.;	2; A; ROT
-	TEXT "?DUP";	A=.;	2; B; QDUP
-	TEXT "PAD_";	B=.;	2; A; PAD
-	TEXT "/MOD";	A=.;	2; B; DIVMOD
-	TEXT "I_";	B=.; 1; A; LPIDX
-	TEXT "WHILE_";	A=.; 4003; B; WHILE
-	TEXT "CR";	XCR=.; 1; A; CRLF
-	TEXT "TYPE";	XTYPE=.; 2; XCR; TYPE
-	TEXT "BL";	B=.; 1; XTYPE; SYSCON; ASPACE
-	TEXT "WITHIN";A=.; 3; B; WITHIN
-	TEXT "DROP";	XDROP=.; 2; A; DROP
-	TEXT "2DROP_"; X2DROP=.; 3; XDROP; DROP2
-	TEXT "DECIMAL_"; A=.; 4; X2DROP; SET10
-	TEXT "OCTAL_";	 B=.; 3; A; SET8
-	TEXT "WORDS_";	A=.; 3; B; WORDS
-	TEXT "CELL";	B=.; 2; A; IGNORE
-	TEXT "CELL+_";	A=.; 3; B; IGNORE
-	TEXT "(QS)";	XSTR=.; 2; A; QUOTS / runtime "
-	TEXT "(DQS)_";	XTYPES=.; 3; XSTR; RDQUOT / runtime ."
-	TEXT "C,";	B=.; 1; XTYPES; COMMA
-	TEXT "(GEN)_"; XGENOP=.; 3; B; GENOP
-	TEXT "UM/MOD"; B=.; 3; XGENOP; UDIV
-	TEXT ">NUMBER_"; A=.; 4; B; GETNUM
-	TEXT "MOVE";	B=.; 2; A; MOVE
-	TEXT "CMOVE_";	A=.; 3; B; MOVE
-	TEXT "OVER";	B=.; 2; A; OVER
-	TEXT "._";	A=.; 1; B; DOT
-	TEXT "AVAIL_";	B=.; 3; A; AVAIL
-	TEXT ">IN_";	A=.; 2; B; SYSVAR; INOFF
-	TEXT "SWITCH";	B=.; 3; A; SWITCH
-	TEXT "NEGATE";	A=.; 3; B; NEGATE
-	TEXT \6"\;	B=.; 4001; A; QUOT6
-	TEXT "TYPE6_";	XTYP6=.; 3; B; TYPE6
-	TEXT \S"\;	B=.; 4001; XTYP6; SQUOT
-	TEXT \."\;	A=.; 4001; B; DQUOT
-	TEXT "SPACE_";	B=.; 3; A; SPACE
-	TEXT ".S";	A=.; 1; B; DOTS
-	TEXT "STATE_";	B=.; 3; A; SYSVAR; STATE
-	TEXT "*_";	A=.; 1; B; TIMES
-	TEXT "1+";	X1PLUS=.; 1; A; ONEP
-	TEXT "COUNT_";	A=.; 3; X1PLUS; COUNTS
-	TEXT ":_";	B=.; 1; A; COLON
-	TEXT "DUP_";  	XDUP=.; 2; B; DUP
-	TEXT "EXECUTE_"; XCUTE=.; 4; XDUP; DOEXEC
-	TEXT "(LIT)_";	 XLIT=.; 3; XCUTE; LITNUM
-	TEXT "HERE";	 XHERE=.; 2; XLIT; SYSCON; HERE
+TEXT "SPACES";	B=.; 3; XLOAD; SPACES
+TEXT "DICT";	A=.; 2; B; SYSCON; DICT
+TEXT "(OF)";	XOF=.; 2; A; DOOF
+TEXT "ENDCASE_";A=.; 4004; XOF; GENEC
+TEXT "ENDOF_";	B=.; 4003; A; GENEOF
+TEXT "CASE";	A=.; 4002; B; GENCAS
+TEXT "OF";	B=.; 4001; A; GENOF
+TEXT "PICK";	A=.; 2; B; PICK
+TEXT "ROLL";	B=.; 2; A; ROLL
+TEXT "(PAR";	XPAR=.; 2; B; PARADR
+TEXT ">BODY_";	XBODY=.; 3; XPAR; TOBODY
+TEXT "FILL";	A=.; 2; XBODY; FILL
+TEXT "0<>_";	B=.; 2; A; NEQZ
+TEXT "+!";	A=.; 1; B; PSTORE
+TEXT "WORD";	B=.; 2; A; WORD
+TEXT "(DS)";	XDOES=.; 2; B; DODOES
+TEXT "DOES>_";	B=.; 4003; XDOES; DOES
+TEXT "CHAR";	A=.; 2; B; PSHCH
+TEXT "[CHAR]";	B=.; 4003; A; CPSHCH
+TEXT \ABORT"\; A=.; 4003; B; ABTQ
+TEXT "PARSE_";	B=.; 3; A; PARSE
+TEXT "POSTPONE";A=.; 4004; B; PSTPON
+TEXT "2@";	B=.; 1; A; FETCH2
+TEXT "2!";	A=.; 1; B; STORE2
+TEXT "SOURCE-ID_"; B=.; 5; A; SYSCON; SRCID
+TEXT "INCLUDE-FILE"; XINCL=.; 6; B; FILINC
+TEXT "FLUSH-FILE"; B=.; 5; XINCL; FILFLU 
+TEXT "CREATE-FILE_"; A=.; 6; B; FILCRE 
+TEXT "SOURCE"; B=.; 3; A; SOURCE
+TEXT "2/";	A=.; 1; B; TWODIV
+TEXT "1-";	B=.; 1; A; MINUS1
+TEXT "ALIGNED_";A=.; 4; B; IGNORE
+TEXT "CHARS_";	B=.; 3; A; IGNORE
+TEXT "[_";	A=.; 4001; B; INTNOW
+TEXT "]_";	B=.; 1; A; CMPNOW
+TEXT "INVERT";	A=.; 3; B; INVERT
+TEXT "+LOOP_";	B=.; 4003; A; GPLOOP
+TEXT "LSHIFT";	A=.; 3; B; LSHIFT
+TEXT "RSHIFT";	B=.; 3; A; RSHIFT
+TEXT "OPEN-FILE_"; XOPEN=.; 5; B; FILOPN
+TEXT "CLOSE-FILE"; XCLOSE=.; 5; XOPEN; FILCLS
+TEXT "READ-FILE_"; A=.; 5; XCLOSE; FILRD
+TEXT "READ-LINE_"; B=.; 5; A; FILRDL
+TEXT "WRITE-FILE"; A=.; 5; B; FILWR
+TEXT "WRITE-LINE"; B=.; 5; A; FILWRL
+TEXT "R/O_"; A=.; 2; B; ISLIT; 0
+TEXT "R/W_"; B=.; 2; A; ISLIT; 1
+TEXT "X@"; A=.; 1; B; FFETCH
+TEXT "X!"; B=.; 1; A; FSTORE
+TEXT "CONSTANT"; A=.; 4; B; GENCON
+TEXT "VARIABLE"; B=.; 4; A; GENVAR
+TEXT "(CON)_";   A=.; 3; B; DOCON
+TEXT "(VAR)_";   B=.; 3; A; DOVAR
+TEXT "=_";	A=.; 1; B; EQL
+TEXT ">_";	XGTR=.; 1; A; GTR
+TEXT "<_";	A=.; 1; XGTR; LESS
+TEXT ">=";	XGEQ=.; 1; A; GEQL
+TEXT "<=";	XLEQL=.; 1; XGEQ; LEQL
+TEXT "<>";	B=.; 1; XLEQL; NEQL
+TEXT "0=";	A=.; 1; B; EQLZ
+TEXT "0<";	B=.; 1; A; LESSZ
+TEXT "0>";	A=.; 1; B; GTRZ
+TEXT "0=";	B=.; 1; A; EQLZ
+TEXT "IF";	XIF=.; 4001; B; GENIF
+TEXT "ELSE";	XELSE=.; 4002; XIF; GENELS
+TEXT "THEN";	XTHEN=.; 4002; XELSE; GENTHN
+TEXT ">R";	XTOR=.; 1; XTHEN; PUSHR
+TEXT "R>";	XPOPR=.; 1; XTOR; POPR
+TEXT "R@";	XFETR=.; 1; XPOPR; RFET
+TEXT "R!";	XRSTOR=.; 1; XFETR; RSTOR
+TEXT "(JMP)_"; XJMP=.; 3; XRSTOR; JUMP
+TEXT "(JMPT)"; XJMPT=.; 3; XJMP; JUMPT
+TEXT "(JMPF)"; XJMPF=.; 3; XJMPT; JUMPF
+TEXT "AGAIN_"; B=.; 4003; XJMPF; AGAIN
+TEXT "*/"; A=.; 1; B; MULDIV
+TEXT "[']_";	B=.; 4002; A; TICK
+TEXT "BEGIN_";A=.; 4003; B; BEGIN
+TEXT "UNTIL_"; B=.; 4003; A; UNTIL
+TEXT "DO"; A=.; 4001; B; GENDO
+TEXT "LOOP"; B=.; 4002; A; GLOOP
+TEXT "IMMEDIATE_";A=.; 5; B; MAKIMM
+TEXT "'_";	B=.;	1; A; TICK
+TEXT "DEPTH_";	A=.;	3; B; DEPTH
+TEXT ",_";	XCOMA=.; 1; A; COMMA
+TEXT "EMIT";	B=.;	2; XCOMA; EMIT
+TEXT "@_";	A=.; 	1; B; FETCH
+TEXT "C@";	B=.; 	1; A; FETCH
+TEXT "-_";	XMINUS=.; 1; B; MINUS
+TEXT "+_";	XPLUS=.; 1; XMINUS; PLUS
+TEXT "!_";	A=.; 	1; XPLUS; STORE
+TEXT "C!";	B=.; 	1; A; STORE
+TEXT "ABORT_";	XABORT=.; 3; B; ABORT
+TEXT "FIND";	B=.; 	2; XABORT; FIND
+TEXT "SWAP";	XSWAP=.; 2; B; SWAP
+TEXT "KEY_";	B=.; 	2; XSWAP; KEY
+TEXT ";_";	A=.;	4001; B; SEMI
+TEXT "BASE";	B=.; 2; A; SYSVAR; BASE
+TEXT "ACCEPT";  A=.; 3; B; ACCEPT
+TEXT "CREATE";	B=.; 3; A; CREATE
+TEXT "ALLOT_";	A=.; 3; B; ALLOT
+TEXT "AND_";	B=.;	2; A; ANDOP
+TEXT "OR";	A=.;	1; B; OROP
+TEXT "ROT_";	B=.;	2; A; ROT
+TEXT "?DUP";	A=.;	2; B; QDUP
+TEXT "PAD_";	B=.;	2; A; PAD
+TEXT "/MOD";	A=.;	2; B; DIVMOD
+TEXT "I_";	B=.; 1; A; LPIDX
+TEXT "WHILE_";	A=.; 4003; B; WHILE
+TEXT "CR";	XCR=.; 1; A; CRLF
+TEXT "TYPE";	XTYPE=.; 2; XCR; TYPE
+TEXT "BL";	B=.; 1; XTYPE; SYSCON; ASPACE
+TEXT "WITHIN";A=.; 3; B; WITHIN
+TEXT "DROP";	XDROP=.; 2; A; DROP
+TEXT "2DROP_"; X2DROP=.; 3; XDROP; DROP2
+TEXT "DECIMAL_"; A=.; 4; X2DROP; SET10
+TEXT "OCTAL_";	 B=.; 3; A; SET8
+TEXT "WORDS_";	A=.; 3; B; WORDS
+TEXT "CELL";	B=.; 2; A; IGNORE
+TEXT "CELL+_";	A=.; 3; B; IGNORE
+TEXT "(QS)";	XSTR=.; 2; A; QUOTS / runtime "
+TEXT "(DQS)_";	XTYPES=.; 3; XSTR; RDQUOT / runtime ."
+TEXT "C,";	B=.; 1; XTYPES; COMMA
+TEXT "(GEN)_"; XGENOP=.; 3; B; GENOP
+TEXT "UM/MOD"; B=.; 3; XGENOP; UDIV
+TEXT ">NUMBER_"; A=.; 4; B; GETNUM
+TEXT "MOVE";	B=.; 2; A; MOVE
+TEXT "CMOVE_";	A=.; 3; B; MOVE
+TEXT "OVER";	B=.; 2; A; OVER
+TEXT "._";	A=.; 1; B; DOT
+TEXT "AVAIL_";	B=.; 3; A; AVAIL
+TEXT ">IN_";	A=.; 2; B; SYSVAR; INOFF
+TEXT "SWITCH";	B=.; 3; A; SWITCH
+TEXT "NEGATE";	A=.; 3; B; NEGATE
+TEXT \6"\;	B=.; 4001; A; QUOT6
+TEXT "TYPE6_";	XTYP6=.; 3; B; TYPE6
+TEXT \S"\;	B=.; 4001; XTYP6; SQUOT
+TEXT \."\;	A=.; 4001; B; DQUOT
+TEXT "SPACE_";	B=.; 3; A; SPACE
+TEXT ".S";	A=.; 1; B; DOTS
+TEXT "STATE_";	B=.; 3; A; SYSVAR; STATE
+TEXT "*_";	A=.; 1; B; TIMES
+TEXT "1+";	X1PLUS=.; 1; A; ONEP
+TEXT "COUNT_";	A=.; 3; X1PLUS; COUNTS
+TEXT ":_";	B=.; 1; A; COLON
+TEXT "DUP_";  	XDUP=.; 2; B; DUP
+TEXT "EXECUTE_";XCUTE=.; 4; XDUP; DOEXEC
+TEXT "(LIT)_";	XLIT=.; 3; XCUTE; LITNUM
+TEXT "HERE";	XHERE=.; 2; XLIT; SYSCON; HERE
 // This must be the last entry.
-	TEXT "BYE_";	 XBYE=.; 2; XHERE; BYE
+TEXT "BYE_";	XBYE=.; 2; XHERE; BYE
 	.LIST
 	.GLOBAL DCTEND
 DCTEND=.

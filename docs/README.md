@@ -79,7 +79,7 @@ This will create `SYS:FORTH.SV` as well as the linker map `FORTH.MP` and various
 Due to space constraints, many useful non-core words have not been implemented, but they are easily added if you need them.  Just put the definitions into the `INIT.FS` file.
 
 ### Dumping memory
-This dumps a range of words in memory field 1, which is the dictionary and stack.
+This dumps a range of words in memory field 1, which is the dictionary and stack.  This is useful while debugging.
 
       : P12 ( u -- ) SPACE 0 <# # # # # #> TYPE ;
       : DUMP ( addr len -- )
@@ -87,5 +87,11 @@ This dumps a range of words in memory field 1, which is the dictionary and stack
           SWAP DUP ROT + SWAP DO
           I P12 I 1 X@ P12 CR LOOP
           R> BASE ! ;
+
+### Right justified numbers
+Print an unsigned value u1 right-justified in u2 spaces.  This is useful for generating tabular reports.
+
+      : U.R ( u1 u2 -- )
+        >R 0 <# #S #> DUP R> SWAP - SPACES TYPE ;
 
 
