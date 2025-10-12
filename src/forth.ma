@@ -140,6 +140,7 @@ TIBPTR,	TIB	/ Console input buffer
 TIBLEN,	^D80	/ 80 characters max per line
 
 // Short routines used in many places.
+// Push AC on the data stack
 PUSHS,	0
 	DCA PUSHRS
 	STA		/ Minus 1
@@ -158,16 +159,6 @@ PUSHRS,	0
 	TAD PUSHS	/ Put value there
 	DCA I RSP
 	JMP I PUSHRS
-
-// Push AC on opcode stack
-PUSHOS,	0
-	DCA PUSHRS
-	STA		/ Decrement OSP
-	TAD OSP
-	DCA OSP
-	TAD PUSHRS	/ Put value there
-	DCA I OSP
-	JMP I PUSHOS
 
 // Lay down a dictionary word from AC, like COMMA
 LAYDN,	0
@@ -216,7 +207,7 @@ BYE,	0		/ Exit to OS/8
 // specially to avoid recursion in the PDP-8 code.
 RUN,	0
 	CLA
-	JMS PUSHRS	/ Fake a zero return address
+	RPUSH	/ Fake a zero return address
 NEXTOP,	CLA
 	TAD INJECT	/ Is there a pending EXECUTE?
 	SNA CLA
@@ -261,7 +252,7 @@ RUNIT,	TAD CURENT
 
 FORTH$:	TAD IP	/ Save old IP for later return
 	    		/ Note: it might be zero
-	JMS PUSHRS	/ Go down a level on R-stack
+	RPUSH	/ Go down a level on R-stack
 	TAD I CPTR	/ Set new IP
 	DCA IP
 	JMP NEXTOP
@@ -305,6 +296,16 @@ ABORT,	0
 	JMS RESET
 	JMP I ABORT
 
+// Push AC on opcode stack
+PUSHOS,	0
+	DCA ABORT
+	STA		/ Decrement OSP
+	TAD OSP
+	DCA OSP
+	TAD ABORT	/ Put value there
+	DCA I OSP
+	JMP I PUSHOS
+
 POPS,	0
 	ISZ SP
 	TAD SP
@@ -343,7 +344,7 @@ WLOOP$:	TAD INOFF
 	TAD LINLEN
 	SPA CLA
 	JMP END$ 	/ Overflowed
-	JMS BL		/ Push Space delimiter
+	CALL BL		/ Push Space delimiter
 	CALL WORD	/ Get next word, caddr on stack
 	TAD I WRDPTR	/ Get anything?
 	SNA CLA
@@ -595,7 +596,7 @@ FETCH2,	0
 	PUSH
 	TAD I TEXT2
 	PUSH
-	JMS SWAP
+	CALL SWAP
 	JMP I FETCH2
 
 	PAGE
@@ -752,7 +753,6 @@ FSTORE,	0
 	JMP I FSTORE
 
 	.SBTTL Comparisons
-
 	PAGE
 // ( a b -- a )  Difference in AC
 COMP,	0		/ Subtract for comparison
@@ -1207,7 +1207,7 @@ OVER,	0		/ ( a b -- a b a )
 
 PUSHR,	0		/ >R
 	TAD I SP
-	JMS PUSHRS
+	RPUSH
 	POP
 	JMP I PUSHR
 
@@ -1394,7 +1394,7 @@ MULDIV,	0		/ ( a b c -- a*b/c )
 	JMS MSTAR	/ c abd
 	CALL ROT	/ abd c
 	JMS FMMOD	/ a*b/c
-	JMS SWAP
+	CALL SWAP
 	POP
 	JMP I MULDIV
 
@@ -1424,7 +1424,7 @@ MINUS,	0		/ ( a b -- a-b )
 // ' gets xt of following word, or zero if
 // no such word exists.
 TICK,	0
-	JMS BL
+	CALL BL
 	CALL WORD
 	TAD I WRDPTR
 	SNA CLA
@@ -1466,7 +1466,7 @@ LOOP$:	CLL
 // Simple integer division.
 DIV,	0
 	JMS DIVMOD	/ Use /MOD
-	JMS SWAP	/ Throw away remainder
+	CALL SWAP	/ Throw away remainder
 	POP
 	JMP I DIV
 	
@@ -1557,7 +1557,7 @@ CREATE,	0
 	TAD HERE
 	DCA NEWORD	/ We start building here
 
-	JMS BL		/ Push SPACE as delimiter
+	CALL BL		/ Push SPACE as delimiter
 	CALL WORD	/ Put ASCII name in WRDBUF
 	JMS PAKNAM	/ Convert to SIXBIT
 
@@ -1749,7 +1749,7 @@ COUNTS,	0
 // POSTPONE compiles IMMEDIATE words so that they
 // do not run at compile time.
 PSTPON,	0
-	JMS BL		/ Lookup next word
+	CALL BL		/ Lookup next word
 	CALL WORD
 	CALL FIND	/ S: xt 1
 	TAD I SP
@@ -1792,7 +1792,7 @@ FIXFWD,	0
 	PAGE
 GENELS,	0		/ Compile ELSE
 	LAYFWD
-	JMS SWAP
+	CALL SWAP
 	JMS FIXFWD
 	JMP I GENELS
 
@@ -2015,7 +2015,7 @@ LPJDX,	0     / Value of outer loop variable
 
 GENDO,	0
 	LAYOP XTOR
-	RPUSH		/ Zero the LEAVE chain
+	RPUSH	/ Zero the LEAVE chain
 	TAD HERE	/ Remember top of loop
 	PUSH		/ for later fixup
 	JMP I GENDO
@@ -2272,7 +2272,7 @@ FODONE,	0
 FODIG,	0
 	PUSH BASE	/ Use current base
 	JMS FMMOD	/ rem quo
-	JMS SWAP	/ quo rem
+	CALL SWAP	/ quo rem
 	TAD I SP	/ Recover remainder
 	POP
 	TAD AZERO	/ Convert to ASCII
@@ -2307,11 +2307,11 @@ LOOP1$:	JMS FODIG	/ Do one digit
 	JMS TODBL
 	/ Loop printing the second part
 LOOP2$:	JMS FODIG	/ rem quo
-	JMS SWAP	/ quo rem
+	CALL SWAP	/ quo rem
 	TAD I SP	/ Is the residue zero?
 	SNA CLA
 	JMP DONE$	/ Yes, stop
-	JMS SWAP
+	CALL SWAP
 	JMP LOOP2$	/ No, do it again
 
 DONE$:	CLA
@@ -2445,7 +2445,7 @@ FILOPN,	0
 	PUSH
 	CLA MQA
 	PUSH
-	JMS SWAP	/ Put status on top
+	CALL SWAP	/ Put status on top
 	JMP I FILOPN
 
 SETSTR,	0	/ Describe a counted string
@@ -2602,7 +2602,7 @@ ABTQ,	0	/ ABORT"
 
 // CHAR: Parse a character and push it
 PSHCH,	0
-	JMS BL
+	CALL BL
 	CALL WORD
 	POP
 	TAD WRDBUF+1
@@ -2611,7 +2611,7 @@ PSHCH,	0
 
 // [CHAR]: Push a character during compile
 CPSHCH,	0
-	JMS BL
+	CALL BL
 	CALL WORD
 	POP
 	LAYOP XLIT
@@ -2773,10 +2773,10 @@ NOJ$:	ISZ IP
 // ENDOF Create JUMP from TRUE branch to ENDCASE,
 // then resolve previous FALSE branch.
 GENEOF,	0
-	JMS SWAP	/ Bring TRUE jump to top
+	CALL SWAP	/ Bring TRUE jump to top
 	JMS FIXFWD	/ Chain previous to this
 	LAYFWD		/ Make this TRUE jump
-	JMS SWAP	/ Go back for OF-FALSE
+	CALL SWAP	/ Go back for OF-FALSE
 	JMS FIXFWD	/ Make it jump here
 	JMP I GENEOF
 
@@ -2798,7 +2798,7 @@ LOOP$:	JMS SPACE
 
 	PAGE
 FORGET,	0
-	JMS BL		/ Push Space delimiter
+	CALL BL		/ Push Space delimiter
 	CALL WORD	/ Get next word, caddr on stack
 	TAD I WRDPTR	/ Get anything?
 	SNA
@@ -2913,12 +2913,12 @@ GENLV,	0
 DPLUS,	0
 	POP HIGH
 	POP LOW
-	JMS SWAP	/ d1H d1L
+	CALL SWAP	/ d1H d1L
 	CLA CLL
 	TAD I SP	/ Add low half
 	TAD LOW
 	DCA I SP
-	JMS SWAP
+	CALL SWAP
 	SZL CLA
 	IAC		/ Carry a one
 	TAD I SP	/ Add high half
@@ -2935,9 +2935,9 @@ MPLUS,	0
 // DNEGATE ( d -- d )  Double negate
 DNEG,	0
 	JMS INVERT
-	JMS SWAP
+	CALL SWAP
 	JMS NEGATE
-	JMS SWAP
+	CALL SWAP
 	JMP I DNEG
 
 // Ignore rest of line
@@ -2974,6 +2974,20 @@ UDOTR,	0
 	JMS TYPE	/ Emit digits
 	JMP I UDOTR
 
+// 2DUP ( d - d d )
+DUP2,	0
+	JMS OVER
+	JMS OVER
+	JMP I DUP2
+
+// 2OVER ( x1 x2 x3 x4 -- x1 x2 x3 x4 x1 x2 )
+OVER2,	0
+	PUSH (3
+	JMS PICK
+	PUSH (3
+	JMS PICK
+	JMP I OVER2
+
 .SBTTL  Built-in word definitions
 
 	.DSECT PREDEF
@@ -3004,6 +3018,8 @@ TIB=.
 	.ENABLE SIXBIT
 /	.NOLIST
 A=0
+TEXT "2OVER_";	B=.; 3; A; OVER2
+TEXT "2DUP";	A=.; 2; B; DUP2
 TEXT "U.R_";	B=.; 2;	A; UDOTR
 TEXT "LITERAL_";A=.; 4004; B; GENLIT
 TEXT "MOD_";	B=.;	2; A; MOD
