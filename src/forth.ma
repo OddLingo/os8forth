@@ -22,6 +22,8 @@
 	ISZ SP
 	.ENDM
 
+/ Call common routines with this macro, that puts a
+/ single indirect word in the $ENGINE ZSECT.
 	.MACRO CALL RTN
 	JMS I [RTN]
 	.ENDM
@@ -31,6 +33,7 @@
 	OP
 	.ENDM
 
+/ This generates a fatal error message and restarts.
 	.MACRO ERROR TYPE
 	JMS RECOVR
 	.DISABLE FILL
@@ -94,7 +97,7 @@ TEXT3,	0	/ Non-autoinc pointers
 TEXT4,	0
 NEWORD,	0	/ Word being built
 COUNT,	0	/ Counting up from zero
-LIMIT,	0	/ Size of a buffer, up to zero
+LIMIT,	0	/ Counting up TO zero
 HIGH,	0	/ Hi order word of value
 LOW,	0	/ Low order word of value
 T1,	0
@@ -105,7 +108,6 @@ CHAR,	0	/ latest character read
 CURENT,	0	/ Current executing word
 PADSPC,	^D20	/ Distance PAD is above HERE
 THISW,	0
-WRDLEN,	0
 INOFF,	0	/ >IN offset in characters from the
 		/ start of the input buffer to the
 		/ start of the parse area.
@@ -449,6 +451,24 @@ GENLIT,	0
 	POP
 	JMS LAYDN
 	JMP I GENLIT
+
+// 2*	( n -- 2n )  Shift left one bit
+TIMES2,	0
+	TAD I SP
+	CLL RAL
+	DCA I SP
+	JMP I TIMES2
+
+// 2>R ( a b -- )  Two words to Rstack
+RTWO,	0
+	CALL SWAP
+	TAD I SP
+	POP
+	RPUSH
+	TAD I SP
+	POP
+	RPUSH
+	JMP I RTWO
 
 	PAGE
 MINUS1,	0     / 1- Subtract one
@@ -2151,8 +2171,8 @@ SPACE,	0		/ Type a space
 
 // Print name of current word if SR bit 0 is set.
 TRACE,	0
-	OSR
-	SMA
+	LAS
+	SMA CLA
 	JMP I TRACE
 	JMS PNAME
 	JMS SPACE
@@ -2219,10 +2239,9 @@ LOOP$:	TAD I TEXT3	/ Fetch word of two chars
 	JMP I PNAME
 MISS$:	ERROR ME	/ Trying to print missing entry
 	JMP I PNAME
-0
 
 // Add a character to the front of the PAD output
-// area, working down.
+// area, working down.  This is for formatted numbers.
 FOPTR,	0
 FOLEN,	0
 FOOUT,	0
@@ -2283,7 +2302,7 @@ FODIG,	0
 // #S ( d -- d ) Format all digits of a number
 // Keep calling FODIG until only zero is left.
 // This has to be done in two parts to prevent
-// divide overflow.
+// divide overflow on large numbers.
 FONUM,	0
 	/ Loop printing the D1 MOD SCALE part
 	/ that was created by FOINIT.  This has
@@ -2310,12 +2329,9 @@ LOOP2$:	JMS FODIG	/ rem quo
 	CALL SWAP	/ quo rem
 	TAD I SP	/ Is the residue zero?
 	SNA CLA
-	JMP DONE$	/ Yes, stop
+	JMP I FONUM	/ Yes, stop
 	CALL SWAP
 	JMP LOOP2$	/ No, do it again
-
-DONE$:	CLA
-	JMP I FONUM
 
 // HOLD Add character to formatted output
 HOLD,	0
@@ -2427,13 +2443,14 @@ LEN6$:	ISZ LIMIT
 	.SBTTL File operations
 
 // OPEN-FILE ( c-addr u fam -- fileid ior )
-// Open the file named in the character string specified by
-// c-addr u, with file access method indicated by fam. The
-// meaning of values of fam is implementation defined.
-// If the file is successfully opened, ior is zero, fileid
-// is its identifier, and the file has been positioned to
-// the start of the file.  Otherwise, ior is the
-// implementation-defined I/O result code and fileid is undefined.
+// Open the file named in the character string
+// c-addr u, with file access method indicated by fam.
+// The meaning of fam is implementation defined.
+// If the file is successfully opened, ior is zero,
+// fileid is its identifier, and the file has been
+// positioned to the start of the file.  Otherwise,
+// ior is the implementation-defined I/O result code
+// and fileid is undefined.
 
 	.EXTERNAL SETFID,FHOPEN,FHCLOS,FHRDL
 FILOPN,	0
@@ -2988,6 +3005,13 @@ OVER2,	0
 	JMS PICK
 	JMP I OVER2
 
+SWAP2,	0
+	JMS ROT
+	JMS PUSHR
+	JMS ROT
+	JMS POPR
+	JMP I SWAP2
+
 .SBTTL  Built-in word definitions
 
 	.DSECT PREDEF
@@ -3017,7 +3041,10 @@ TIB=.
 	.DISABLE FILL
 	.ENABLE SIXBIT
 /	.NOLIST
-A=0
+B=0
+TEXT "2>R_";	A=.; 2; B; RTWO
+TEXT "2*";	B=.; 1; A; TIMES2
+TEXT "2SWAP_";	A=.; 3; B; SWAP2
 TEXT "2OVER_";	B=.; 3; A; OVER2
 TEXT "2DUP";	A=.; 2; B; DUP2
 TEXT "U.R_";	B=.; 2;	A; UDOTR
@@ -3056,18 +3083,16 @@ TEXT "(LX)";	XLPXIT=.; 2; XLPPBO; LPXIT
 TEXT "(LP)";	XLPBOT=.; 2; XLPXIT; BOTLP
 TEXT "J_";	A=.; 1; B; LPJDX
 TEXT "EXIT"; B=.; 4002; A; EXIT
-TEXT \.6"_\; A=.; 4002; B; DQUOT6
-TEXT "FORGET"; B=.; 3; A; FORGET
+TEXT \.6"_\; DQ6=.; 4002; B; DQUOT6
+TEXT "FORGET"; B=.; 3; DQ6; FORGET
 TEXT "INIT"; XINIT=.; 2002; B; .+1
 	.ENABLE ASCII
 	  XSTR; 7; TEXT "INIT.FS"; XLOAD; 0
 	.ENABLE SIXBIT
 TEXT "LOAD";	XLOAD=.; 2002; XINIT; .+1
-	  XLIT; 0; XOPEN; XJMPF; 16; XSTR
-	  .ENABLE ASCII
-	  7; TEXT "NO INIT"
-	  XTYPE; XDROP; XJMP; 2; XINCL; 0
-	  .ENABLE SIXBIT
+	  XLIT; 0; XOPEN; XJMPF; ^D10
+	  XSTR; 3; TEXT "NOINIT"; XTYP6
+	  XDROP; XJMP; 2; XINCL; 0
 TEXT "SPACES";	B=.; 3; XLOAD; SPACES
 TEXT "DICT";	A=.; 2; B; SYSCON; DICT
 TEXT "(OF)";	XOF=.; 2; A; DOOF
