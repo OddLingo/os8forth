@@ -65,6 +65,8 @@ The following FORTH words are extensions to the FORTH Standard to gain access to
 
 * **.6"** Similar to `."` but uses SIXBIT storage.
 
+* **.8** Prints numeric value on stack as unsigned octal in 4 digits regardless of current BASE. Useful for debugging.
+
 ## Building
 The MACREL/LINK relocatable assembler and linker are used.  A BATCH file `FORTH.BI` is provided that puts everything together.
 
@@ -81,11 +83,10 @@ Due to space constraints, many useful non-core words have not been implemented, 
 ### Dumping memory
 This dumps a range of words in memory field 1, which is the dictionary and stack.  This is useful while debugging.
 
-      : P12 ( u -- ) SPACE 0 <# # # # # #> TYPE ;
       : DUMP ( addr len -- )
           BASE @ >R OCTAL
           SWAP DUP ROT + SWAP DO
-          I P12 I 1 X@ P12 CR LOOP
+          I .8 I 1 X@ .8 CR LOOP
           R> BASE ! ;
 
 ### Right justified numbers

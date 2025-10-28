@@ -15,21 +15,23 @@
 	JMS PUSHRS
 	.ENDM
 
-	.MACRO POP DEST
-	.IF NB DEST <TAD I SP
-	DCA DEST
-	>
-	ISZ SP
-	.ENDM
-
 / Call common routines with this macro, that puts a
 / single indirect word in the $ENGINE ZSECT.
 	.MACRO CALL RTN
 	JMS I [RTN]
 	.ENDM
 
+	CHKPOP=0
+	.MACRO POP DEST
+	.IF NB DEST <TAD I SP
+	DCA DEST
+	>
+	.IF NE CHKPOP <CALL POPS>
+	.IF EQ CHKPOP <ISZ SP>
+	.ENDM
+
 	.MACRO LAYOP OP
-	JMS LAYLIT
+	CALL LAYLIT
 	OP
 	.ENDM
 
@@ -44,7 +46,7 @@
 / Lay down a FORWARD jump, to be resolved later
 / by FIXFWD.
 	.MACRO LAYFWD TYPE
-	JMS LAYLIT
+	CALL LAYLIT
 	.IF NB TYPE <TYPE>
 	.IF BL TYPE <XJMP>
 	JMS MARKFJ
@@ -89,8 +91,9 @@ SCDIGS,	-3	/ Negative digit count
 HERE,	DCTEND	/ Start of free memory
 DICT,	XBYE	/ Start of dictionary chain
 STATE,	0	/ Compiling
-INJECT,	0	/ Interrupt execution
+INJECT,	0	/ Forced execution token
 SRCID,	0	/ Where interpreter reads from
+STOPAT,	7777	/ HLT when IP matches
 
 /// Temporary values
 TEXT3,	0	/ Non-autoinc pointers
@@ -168,15 +171,6 @@ LAYDN,	0
 	ISZ HERE
 	JMP I LAYDN
 
-LAYLIT,	0		/ Lay a literal and skip it
-	CLA
-	CDF .		/ Fetch from instruction space
-	TAD I LAYLIT
-	CDF TIB
-	JMS LAYDN
-	ISZ LAYLIT
-	JMP I LAYLIT
-
 	.RSECT ENGINE
 	.SBTTL Startup
 	.ENABLE SIXBIT
@@ -202,7 +196,7 @@ BYE,	0		/ Exit to OS/8
 	CDF CIF
 	JMP 7600
 
-// Execute compiled FORTH opcodes until RETURN.
+// Execute compiled FORTH opcodes until an EXIT.
 // Any machine-code words are called with JMS but
 // FORTH words are handled iteratively with their
 // own call stack. Calls to "EXECUTE" are handled
@@ -210,28 +204,39 @@ BYE,	0		/ Exit to OS/8
 RUN,	0
 	CLA
 	RPUSH	/ Fake a zero return address
-NEXTOP,	CLA
+NEXT$:	CLA
 	TAD INJECT	/ Is there a pending EXECUTE?
-	SNA CLA
+	SNA
 	JMP NOINJ$	/ No
-	DCA INJECT	/ Yes, clear flag
-	JMP UNWND$	/ And take xt from stack
+	DCA CURENT	/ Yes, make it next
+	DCA INJECT	/ and clear flag
+	TAD (XCUTE)
+	CIA
+	TAD CURENT	/ But was it XCUTE?
+	SZA CLA
+	JMP RUNIT$	/ No, just go
+	POP INJECT	/ Yes, do its work here
+	JMP NEXT$
 
-NOINJ$:	TAD IP		/ IP=0 means stop
-	SNA CLA
+NOINJ$:	CLA
+	TAD IP		/ IP=0 means stop
+	SNA CLA		/ Else fall to GETOP
 	JMP I RUN
 
-UNWND$:	JMS UNEXEC	/ Unwind EXECUTE calls
+GETOP$:	TAD IP		/ Check breakpoint
+	TAD STOPAT
+	SNA CLA
+	HLT
 	TAD I IP	/ Fetch next instruction
 	SNA
-	JMP RETURN	/ Zero opcode means return
+	JMP RET$	/ Zero opcode means return
 	DCA CURENT	/ Save as the "current" word
 
 	ISZ IP		/ Increment IP for next time
-	JMS TRACE
+RUNIT$:	JMS TRACE
 
 	// Set code and data pointers
-RUNIT,	TAD CURENT
+	TAD CURENT
 	JMS PUSHOS	/ Remember what it is
 	TAD CURENT
 	IAC		/ Skip flag word
@@ -241,61 +246,51 @@ RUNIT,	TAD CURENT
 	IAC
 	DCA DPTR	/ Addr of parameter area
 
-	// Determine execution type from flag
+	// Determine execution type from flag.
 	TAD I CURENT
 	AND FTHFLG
 	SZA CLA
 	JMP FORTH$	/ Interpreted
+
+	/ Execite a machine-code word.  These never
+	/ recurse and always return right away, though
+	/ they can change the state of the engine.
 	TAD I CPTR
 	DCA CPTR
-	JMS I CPTR	/ Machine code
+	JMS I CPTR	/ Run the code
 	ISZ OSP
-	JMP NEXTOP	/ DOES> returns here
+	JMP NEXT$	/ DOES> returns here
 
+/ Start a new interpretered word, saving the
+/ current context so it can be resumed.
 FORTH$:	TAD IP	/ Save old IP for later return
-	    		/ Note: it might be zero
+		/ Note: it might be zero
 	RPUSH	/ Go down a level on R-stack
 	TAD I CPTR	/ Set new IP
 	DCA IP
-	JMP NEXTOP
+	JMP NEXT$
 
-UNEXEC,	0   / Remove explicit EXECUTEs
-TOSS$:	TAD I SP
-	CIA
-	TAD (XCUTE)
-	SZA CLA
-	JMP I UNEXEC
-	POP
-	JMP TOSS$
-
-/ Return from an interpreted word.
-RETURN,	TAD I RSP	/ Get resume address
-	DCA IP
+/ Return from an interpreted word.  A zero
+/ opcode has been encountered by RUN.
+RET$:	TAD I RSP	/ Get resume address
+	DCA IP		/ Next op is there.
 	ISZ RSP		/ Pop return stack
 	ISZ OSP		/ And op stack
-	JMP NEXTOP
+	JMP NEXT$
 
-// Console interpreter sends EXECUTE here.  We
-// start the low level interpreter only if it
-// is not already running.  Otherise we signal
-// it to do the work of EXECUTE itself.
+// EXECUTE ( xt -- ) Make the RUN engine do word
+// on the stack.
 DOEXEC,	0
-	TAD IP		/ Low interpreter running?
-	SZA CLA
-	JMP INJ$	/ Yes.
-	JMS UNEXEC	/ Unwind self
-	TAD I SP	/ Not running, so start it
-	POP
-	DCA CURENT
-	TAD DOEXEC	/ Redirect RUN's return
-	DCA RUN
-	JMP RUNIT
-INJ$:	ISZ INJECT	/ Set flag to Interrupt RUN
+	POP INJECT	/ force current
+	TAD IP		/ is RUN already going?
+	SNA CLA
+	JMS RUN		/ No, do it now
 	JMP I DOEXEC
 
 // ABORT stops execution and clears stacks.
 ABORT,	0
 	JMS RESET
+	JMS PUSHOS	/ Make OSP coorect
 	JMP I ABORT
 
 // Push AC on opcode stack
@@ -306,15 +301,7 @@ PUSHOS,	0
 	DCA OSP
 	TAD ABORT	/ Put value there
 	DCA I OSP
-	JMP I PUSHOS
-
-POPS,	0
-	ISZ SP
-	TAD SP
-	TAD (400)
-	SMA CLA
-	HLT
-	JMP I POPS
+ 	JMP I PUSHOS
 
 	.SBTTL Main interpreter
 PAGE
@@ -363,9 +350,12 @@ WLOOP$:	TAD INOFF
 	SZA CLA
 	JMP COMP$
 	//?? Error if IMMFLG set here
+	/ Set up runtime to execute word we found.
 	JMS DOEXEC	/ Execute word on stack now
 	JMP WLOOP$	/ Get another word
-
+	// We are in Compiling Mode so we either lay
+	// down the opcode or, if flagged IMMEDIATE,
+	// execute it.
 COMP$:	TAD I SP	/ Get address of dict entry
 	DCA T1
 	TAD I T1	/ Get header word
@@ -379,7 +369,7 @@ COMP$:	TAD I SP	/ Get address of dict entry
 IMM$:	JMS DOEXEC	/ Execute now
 	JMP WLOOP$
 
-PREND$:	POP
+PREND$:	POP		/ Don't need WORD flag
 END$:	CLA
 	TAD STATE	/ All done, compiling?
 	SZA CLA
@@ -435,7 +425,8 @@ RESET,	0
 	DCA SRCID	/ Reading from console
 	JMP I RESET
 
-TWODIV,	0     / Arithmetic shift right
+// /2 Arithmetic shift right
+TWODIV,	0
 	TAD I SP
 	CLL
 	SPA
@@ -458,17 +449,6 @@ TIMES2,	0
 	CLL RAL
 	DCA I SP
 	JMP I TIMES2
-
-// 2>R ( a b -- )  Two words to Rstack
-RTWO,	0
-	CALL SWAP
-	TAD I SP
-	POP
-	RPUSH
-	TAD I SP
-	POP
-	RPUSH
-	JMP I RTWO
 
 	PAGE
 MINUS1,	0     / 1- Subtract one
@@ -495,10 +475,10 @@ INVERT,	0
 
 	.ENTRY PUT
 PUT,	0
-	TLS			/Output char.
-	TSF			/Wait until ready.
+	TLS		/Output char.
+	TSF		/Wait until ready.
 	JMP	.-1
-	CLA			/Clear AC.
+	CLA		/Clear AC.
 	JMP I PUT
 
 EMIT,	0		/ Output char on stack
@@ -757,7 +737,7 @@ FFETCH,	0
 	JMS SETFLD
 	JMS CHANGE
 	TAD I T1	/ Far fetch
-	CDF TIB
+	CDF TIB		/ Back to dictionary
 	DCA I SP
 	JMP I FFETCH
 
@@ -768,7 +748,7 @@ FSTORE,	0
 	TAD I SP	/ The value
 	JMS CHANGE
 	DCA I T1	/ Far Store
-	CDF TIB
+	CDF TIB		/ Back to dictionary
 	POP
 	JMP I FSTORE
 
@@ -988,9 +968,9 @@ SQUOT,	0
 	JMP I SQUOT
 
 // EXIT a zero opcode means return from word.
-EXIT,	0
+GENEX,	0
 	JMS LAYDN
-	JMP I EXIT
+	JMP I GENEX
 
 // S>D Convert to double integer
 TODBL,	0
@@ -1122,10 +1102,8 @@ GENCON,	0		/ Define a CONSTANT
 
 GENVAR,	0		/ Define a VARIABLE
 	JMS CREATE
-	TAD I SP
-	POP
-	JMS LAYDN
-	TAD (DOVAR	/ SeVARIABLE action
+	JMS LAYDN	/ Space for the value
+	TAD (DOVAR	/ Set action
 	DCA I CPTR
 	JMP I GENVAR
 
@@ -1504,7 +1482,7 @@ DMULT,	0
 	JMP I DMULT
 
 	.SBTTL Number conversions
-// U. ( n -- ) Print unsigned value
+// U8. ( n -- ) Print unsigned value
 UDOT,	0		/ Print a numeric value
 	JMS UNUM
 	JMS TYPE
@@ -1649,7 +1627,7 @@ AVAIL,	0		/ Get available memory
 
 SEMI,	0		/ Finish compilation
 	DCA STATE	/ Flag off
-	JMS LAYLIT
+	CALL LAYLIT
 	0		/ Add a RETURN op
 	JMP I SEMI
 
@@ -2096,7 +2074,7 @@ SETI,	DCA I RSP
 	TAD I RSP	/ Check against limit
 	CIA
 	TAD I SP
-	SZA CLA
+	SZA SMA CLA
 	JMP BACK$	/ Not yet
 	ISZ IP		/ Skip the address
 	JMP I BOTLP	/ LPXIT will clean up
@@ -2171,11 +2149,13 @@ SPACE,	0		/ Type a space
 
 // Print name of current word if SR bit 0 is set.
 TRACE,	0
-	LAS
-	SMA CLA
-	JMP I TRACE
-	JMS PNAME
-	JMS SPACE
+	LAS		/ Load switches
+	SMA CLA		/ b0 set?
+	JMP I TRACE	/ No
+	JMS PNAME	/ Yes, print name
+	PUSH SP		/ Print stack
+	CALL DOT8
+	JMS SPACE	/ Print space
 	JMP I TRACE
 
 	// Dump the entire dictionary
@@ -2272,8 +2252,10 @@ FOINIT,	0
 	/ contains D1 / SCALE.
 	/ Allocate buffer above PAD.
 ALLOC$:	JMS PAD
+	TAD I SP
 	TAD (20
-	POP FOPTR	/ Set top end
+	DCA FOPTR	/ Set top end
+	POP
 	DCA FOLEN	/ Zero length
 	JMP I FOINIT
 
@@ -2700,9 +2682,7 @@ DODOES,	0
 
 // +! ( n addr -- )
 PSTORE,	0
-	TAD I SP	/ Get address
-	POP
-	DCA T1
+	POP T1		/ Stash address
 	TAD I T1	/ Get old value
 	TAD I SP	/ Add increment
 	DCA I T1	/ Store it back
@@ -3012,6 +2992,58 @@ SWAP2,	0
 	JMS POPR
 	JMP I SWAP2
 
+// .6 Print two sixbit characters
+DOT6,	0
+	JMP I DOT6
+
+// .8 Print value as 4 octal digits
+DOT8,	0
+	POP T1
+	TAD (-4)	/Loop four times.
+	DCA LIMIT
+LOOP$:	TAD T1		/Get number.
+	RTL;RAL		/Shift one digit left
+	DCA T1		/and save.
+	TAD T1
+	RAL	/Shift last bit of high digit into low.
+	AND (7)		/Mask out low digit.
+	TAD AZERO	/ASCIIfy.
+	CALL PUT	/Output number.
+	ISZ LIMIT	/Bump digit count.
+	JMP LOOP$	/Repeat.
+	JMP I DOT8	/Return.
+
+// 2>R ( a b -- )  Two words to Rstack
+RTWO,	0
+	CALL SWAP
+	TAD I SP
+	POP
+	RPUSH
+	TAD I SP
+	POP
+	RPUSH
+	JMP I RTWO
+
+LAYLIT,	0		/ Lay a literal and skip it
+	CLA
+	CDF .		/ Fetch from instruction space
+	TAD I LAYLIT
+	CDF TIB
+	JMS LAYDN
+	ISZ LAYLIT
+	JMP I LAYLIT
+
+.IF NE CHKPOP <POPS, 0
+	ISZ SP
+	DCA SPOP$
+	TAD SP
+	TAD (-7400)
+	SMA CLA
+	HLT
+	TAD SPOP$
+	JMP I POPS
+SPOP$:	0>
+
 .SBTTL  Built-in word definitions
 
 	.DSECT PREDEF
@@ -3042,6 +3074,10 @@ TIB=.
 	.ENABLE SIXBIT
 /	.NOLIST
 B=0
+TEXT "STOPAT";	A=.; 3; B; SYSVAR; STOPAT
+TEXT ".8";	B=.; 1; A; DOT8
+TEXT "0<";	A=.; 1; B; LESSZ
+TEXT ".6";	B=.; 1; A; DOT6
 TEXT "2>R_";	A=.; 2; B; RTWO
 TEXT "2*";	B=.; 1; A; TIMES2
 TEXT "2SWAP_";	A=.; 3; B; SWAP2
@@ -3082,7 +3118,7 @@ TEXT "(L+)";	XLPPBO=.; 2; B; BOTLPP
 TEXT "(LX)";	XLPXIT=.; 2; XLPPBO; LPXIT
 TEXT "(LP)";	XLPBOT=.; 2; XLPXIT; BOTLP
 TEXT "J_";	A=.; 1; B; LPJDX
-TEXT "EXIT"; B=.; 4002; A; EXIT
+TEXT "EXIT"; B=.; 4002; A; GENEX
 TEXT \.6"_\; DQ6=.; 4002; B; DQUOT6
 TEXT "FORGET"; B=.; 3; DQ6; FORGET
 TEXT "INIT"; XINIT=.; 2002; B; .+1
@@ -3152,8 +3188,6 @@ TEXT "<_";	A=.; 1; XGTR; LESS
 TEXT ">=";	XGEQ=.; 1; A; GEQL
 TEXT "<=";	XLEQL=.; 1; XGEQ; LEQL
 TEXT "<>";	B=.; 1; XLEQL; NEQL
-TEXT "0=";	A=.; 1; B; EQLZ
-TEXT "0<";	B=.; 1; A; LESSZ
 TEXT "0>";	A=.; 1; B; GTRZ
 TEXT "0=";	B=.; 1; A; EQLZ
 TEXT "IF";	XIF=.; 4001; B; GENIF
