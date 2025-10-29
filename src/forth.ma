@@ -15,12 +15,6 @@
 	JMS PUSHRS
 	.ENDM
 
-/ Call common routines with this macro, that puts a
-/ single indirect word in the $ENGINE ZSECT.
-	.MACRO CALL RTN
-	JMS I [RTN]
-	.ENDM
-
 	CHKPOP=0
 	.MACRO POP DEST
 	.IF NB DEST <TAD I SP
@@ -28,6 +22,21 @@
 	>
 	.IF NE CHKPOP <CALL POPS>
 	.IF EQ CHKPOP <ISZ SP>
+	.ENDM
+
+/ Call common routines with this macro, that puts a
+/ single indirect word in the $ENGINE ZSECT.  It is
+/ important that $ENGINE gets located on Page 0 of
+/ Field 0, which it will not if Page 0 is overfilled.
+/ Check the LINKER map.
+	.MACRO CALL RTN
+	JMS I [RTN]
+	.ENDM
+
+/ A "far call" calls a routine in another field.
+/ This is used for file operations.
+	.MACRO FCALL RTN
+	CIF RTN; JMS RTN
 	.ENDM
 
 	.MACRO LAYOP OP
@@ -614,7 +623,6 @@ ACCEPT,	0
 	TAD I SP	/ Put it here
 	DCA INBUF$
 	POP
-	CIF $INPUT
 	JMS $INPUT
 INBUF$:	0		/ buf
 INLEN$:	0		/ len
@@ -2439,7 +2447,7 @@ FILOPN,	0
 	POP	/?? Ignore mode for now
 	/ Point at filename string
 	JMS SETSTR  / Load MQ,AC from stack
-	CIF FHOPEN; JMS FHOPEN	/ Call OS8 interface
+	FCALL FHOPEN	/ Call OS8 interface
 	/ MQ is fileid, AC is status
 	PUSH
 	CLA MQA
@@ -2461,7 +2469,7 @@ FILCRE,	0
 	POP	/?? Ignore mode for now
 	/ Point at filename string
 	JMS SETSTR  / Load MQ,AC from stack
-	CIF FHCRE; JMS FHCRE	/ OS8 interface
+	FCALL FHCRE	/ OS8 interface
 	/ AC is fileid, MQ is status
 	PUSH
 	CLA MQA
@@ -2471,7 +2479,7 @@ FILCRE,	0
 // CLOSE-FILE ( id -- status )
 FILCLS,	0
 	TAD I SP
-	CIF FHCLOS; JMS FHCLOS
+	FCALL FHCLOS
 	DCA I SP
 	JMP I FILCLS
 
@@ -2479,8 +2487,7 @@ FILCLS,	0
 	.EXTERNAL FHFLUS
 FILFLU,	0
 	TAD I SP
-	CIF FHFLUS
-	JMS FHFLUS
+	FCALL FHFLUS
 	DCA I IP
 	JMP I FILFLU
 
@@ -2513,15 +2520,13 @@ FILRD,	0	/ Read a block from the file
 / At EOF ior=-1, flag=0, u2=0
 FILRDL,	0
 	TAD I SP
-	CIF SETFID
-	JMS SETFID	/ Set File-ID
+	FCALL SETFID	/ Set File-ID
 	POP
 	TAD I SP
 	MQL		/ Max length to MQ
 	POP
 	TAD I SP	/ Address to AC
-	CIF FHRDL
-	JMS FHRDL	/ Read one line
+	FCALL FHRDL	/ Read one line
 	CDF TIB
 	SPA		/ Positive AC is u2
 	JMP EOF$
@@ -2544,12 +2549,10 @@ FILWR,	0   / Write a block
 	.EXTERNAL FHWRL
 FILWRL,	0   / Write a line
 	TAD I SP
-	CIF SETFID
-	JMS SETFID	/ Set fILE id
+	FCALL SETFID	/ Set fILE id
 	POP
 	JMS SETSTR	/ Load MQ,AC
-	CIF FHWRL
-	JMS FHWRL
+	FCALL FHWRL
 	CIF .
 	PUSH		/ Status
 	JMP I FILWRL

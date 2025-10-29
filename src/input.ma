@@ -8,7 +8,8 @@
 /
 /	All rights reserved.
 /
-/	INPUT is a library routine.
+/ This routine does console input line editing, removing
+/ a dependence on the OS/8 two-page terminal driver.
 /
 /	History:
 /
@@ -25,7 +26,7 @@
 
 / INPUT reads a string, terminated by a CR, and puts
 / in at arg1. Arg2 tell maximum length of string.
-/ Padded by a NUL in memory.
+/ Padded by a NUL in memory.  RUBOUTs are handled.
 
 	.ENTRY	$INPUT
 $INPUT,	0			/For return address.
@@ -35,10 +36,10 @@ $INPUT,	0			/For return address.
 	ISZ	$INPUT
 	DCA	P$		/Save as pointer.
 	TAD I	$INPUT		/Get arg2.
+	CDF DCTEND
 	ISZ	$INPUT
 	DCA	ML$		/Save as max length.
 	DCA	CL$		/Clear current length.
-	CDF 10			/Back to data field
 MAIN$:	JMS	GET
 	AND	(177)		/Mask away high bit.
 	DCA	T$		/Save char.
@@ -113,13 +114,10 @@ R2$:	0
 	JMP I	R2$	/Nope. Return.
 	DCA	CL$	/Yep. Save new current length.
 	TAD	(10	/BS
-	CIF	PUT
 	JMS	PUT
 	TAD	(40	/SP
-	CIF	PUT
 	JMS	PUT
 	TAD	(10	/BS
-	CIF	PUT
 	JMS	PUT
 	CMA		/Decrement pointer.
 	TAD	P$
