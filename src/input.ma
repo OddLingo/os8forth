@@ -1,8 +1,8 @@
 	.TITLE	INPUT - Input a string.
-	.VERSIO	21
+	.VERSIO	22
 / ++
 /
-/	INPUT Y2.1
+/	INPUT Y2.2
 /
 /	(c) 1988, 1989, 1990 by Johnny Billquist
 /
@@ -19,9 +19,9 @@
 / 89/12/01 20:00	BQT	Y1.4. Made functions FSECT.
 / 89/12/27 05:00	BQT	Y2.0. Made from IOLIB.
 / 90/03/13 02:00	BQT	Y2.1. Added ^U.
-/
+/ 25/10/01 10:00	PAD	Y2.2. Integrate into FORTH
 / --
-	.EXTERNAL	GET,PUT,DCTEND
+	.EXTERNAL GET,PUT,DCTEND
 	.FSECT	.INPUT
 
 / INPUT reads a string, terminated by a CR, and puts

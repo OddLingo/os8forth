@@ -1,6 +1,3 @@
-: GREET
-  .6" Welcome to OS/8 Forth, v0.7." CR
-  .6" There are " AVAIL U. SPACE .6" words of memory available." CR
-  .6" Edit INIT.FS to change this message or add definitions." CR ;
-GREET
-FORGET GREET
+.( WELCOME TO OS/8 FORTH, V0.7. ) CR
+.( THERE ARE ) AVAIL U. SPACE .( WORDS OF MEMORY AVAILABLE. ) CR
+.( EDIT INIT.FS TO CHANGE THIS MESSAGE OR ADD DEFINITIONS. ) CR

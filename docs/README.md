@@ -33,6 +33,7 @@ This is an interpreter/compiler for the FORTH language that runs under the OS/8 
 
 ## Dictionary
 ### Standard words
+The standard Forth word `WORDS` will print a list of all the words known to the compiler.
 
       ! # #> ' * */ + +! , - . ." / : ; < <# <= <> = > >= @
       [ ['] ] 0< 0<> 0= 0= 0> 1+ 1- 2! 2/ 2@ 2DROP .6" 6"
@@ -67,15 +68,50 @@ The following FORTH words are extensions to the FORTH Standard to gain access to
 
 * **.8** Prints numeric value on stack as unsigned octal in 4 digits regardless of current BASE. Useful for debugging.
 
+* **BREAK** ( addr -- ) Sets a breakpoint that will make FORTH execute a `HLT` instruction when the execution token located at `addr` is reached within a compiled Forth word.  For example:
+
+        `OCTAL 2300 BREAK`
+
+At this point you can use the `simh built in debugger to examine registers and memory.  Use the simh continue command to resume execution.  Only one address can be set as a breakpoint at a time.  To clear the breakpoint, set it to -1.
+
 ## Building
 The MACREL/LINK relocatable assembler and linker are used.  A BATCH file `FORTH.BI` is provided that puts everything together.
 
-1. Copy the `FORTH.BI` file to `SYS:`
+1. Copy all of `src/` to your PDP-8.
+    - Coming from Linux, use the `unix2dos` utility to convert Linux `LF` line endings to `CRLF`.  The `unix2dos` utility can do this:
+
+        `unix2dos -n src/$FILE.ma ./$FILE.dos`
+
+    - If using the `simh simulator for PDP-8, you can make the .dos files appear to be in the Paper Tape Reader with the
+simh `ATTACH` command:
+
+        `sim> ATTACH PTR $FILE.dos`
+
+    - Then once in OS/8, use PIP to copy the file onto your DSK directory.  You have to do this for each file in turn.
+
+        `.R PIP`
+
+        `*FILE.MA<PTR:`
+
+        `*<space>`
+
+        `*^C`
+
+2. Copy the `FORTH.BI` file to `SYS`
 2. `.SUBMIT SYS:FORTH/T`
 
 This will create `SYS:FORTH.SV` as well as the linker map `FORTH.MP` and various `.LS` files.  The interpreter can then be executed by:
 
         .R FORTH
+
+## Saving output
+If you have created a virtual line printer in `simh` with the command `ATTACH LPT printer.lst` you can copy any listing or other files to your host system with the OS/8 command `COPY LPT:<*.LS` and so on.
+
+When you exit from `simh` the resulting file will however be in PDP-8 format.  A small utility program is provided in the `tools/` directory to convert these files.  Build the `strip` utility with the command `gcc strip.c` then you can convert the OS/8 file with the command
+
+       cat printer.lst | tools/strip > forth.lst.
+
+Files transfered though the `simh virtual Paper Tape Punch can be handled in a similar way.
 
 ## Useful code samples
 Due to space constraints, many useful non-core words have not been implemented, but they are easily added if you need them.  Just put the definitions into the `INIT.FS` file.
@@ -84,10 +120,8 @@ Due to space constraints, many useful non-core words have not been implemented, 
 This dumps a range of words in memory field 1, which is the dictionary and stack.  This is useful while debugging.
 
       : DUMP ( addr len -- )
-          BASE @ >R OCTAL
           SWAP DUP ROT + SWAP DO
-          I .8 I 1 X@ .8 CR LOOP
-          R> BASE ! ;
+          I .8 I 1 X@ .8 CR LOOP ;
 
 ### Right justified numbers
 Print an unsigned value u1 right-justified in u2 spaces.  This is useful for generating tabular reports.
