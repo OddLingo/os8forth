@@ -9,6 +9,7 @@
 	.LIST
 
 	.EXTERNAL TIB, ENGINE
+	CHBLK=^D368    / Characters per block
 
 	.XSECT FHIDX
 	FIELD 2
@@ -27,7 +28,8 @@ COUNT,	0
 CHAR,	0
 FADDR,	0
 FLEN,	0
-
+HIGH,	0
+LOW,	0
 	.DSECT FHBUF
 	FIELD 2
 / File Information Blocks and buffers.
@@ -296,7 +298,7 @@ LOOP$:	CDF .
 	7		/ ICHAR
 	JMP EOF$
 	CDF TIB
-	AND (177)	/ Strip parity bit
+	AND [177]	/ Strip parity bit
 	DCA CHAR
 	TAD CHAR	/ Check EOF
 	TAD (-32)
@@ -370,3 +372,67 @@ OCHAR$:	0
 	JMP I OCHAR$
 	/ AC >= 0: out of room
 	/ AC<0: fatal
+
+// Get file position as block + offset.
+// Return block# in MQ, offset in AC.
+	.ENTRY FHPOS
+FHPOS,	0
+	CDF .
+	TAD THEFIB+BUFPOS
+	AND [774]
+	RTR
+	DCA LOW	 / Save shifted upper 7 bits
+	TAD THEFIB+BUFPOS
+	AND [3]
+	DCA CHAR	/ 0,1,2
+	TAD LOW / Upper bits times 3
+	MQL MUY
+	3
+	MQA		/ Plus char offset
+	TAD CHAR
+	DCA LOW
+	STA		/ Relative blkno
+	TAD THEFIB+FILBLK
+	SPA SZA		/ Hack zero blk
+	CLA
+	MQL
+	TAD LOW		/ Bytes in AC
+	CIF ENGINE
+	CDF TIB
+	ISZ FHPOS	/ Skip error return
+	JMP I FHPOS
+
+FHSPOS,	0
+	JMP I FHSPOS
+
+	PAGE
+// Push the AC onto the Forth stack.
+// The SP is in Field 0 and the stack is in
+// Field 1.  This code is in Field 2.
+PSHAC,	0
+	DCA TEMP$
+	CDF ENGINE
+	STA
+	TAD I [20]	/ Old SP-1
+	DCA OURSP
+	TAD OURSP
+	DCA I [20]
+	CDF TIB
+	TAD TEMP$
+	DCA I OURSP
+	CDF .
+	JMP I PSHAC
+TEMP$:	0
+OURSP,	0
+POPAC,	0
+	CDF ENGINE
+	TAD I [20]
+	DCA OURSP
+	TAD OURSP
+	IAC
+	DCA I [20]
+	CDF TIB
+	TAD I OURSP
+	CDF .
+	JMP I POPAC
+

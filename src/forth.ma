@@ -3047,6 +3047,25 @@ LAYLIT,	0		/ Lay a literal and skip it
 	JMP I POPS
 SPOP$:	0>
 
+	PAGE
+// FILE-POSITION ( id -- ud ior ) Return file position
+// in characters.
+	.EXTERNAL FHPOS
+FILPOS,	0
+	TAD I SP	/ Set file id
+	POP
+	FCALL SETFID
+	FCALL FHPOS	/ Get position
+POS$:	HLT   		/ Error
+	PUSH		/ Push low part
+	MQA
+	PUSH		/ Push high part
+	PUSH (^D384)	/ Merge into 24bit position
+	JMS MSTAR
+	JMS MPLUS
+	PUSH		/ flag
+	JMP I FILPOS
+
 .SBTTL  Built-in word definitions
 
 	.DSECT PREDEF
@@ -3076,7 +3095,8 @@ TIB=.
 	.DISABLE FILL
 	.ENABLE SIXBIT
 /	.NOLIST
-B=0
+A=0
+TEXT "FILE-POSITION_"; B=.; 7; A; FILPOS
 TEXT "STOPAT";	A=.; 3; B; SYSVAR; STOPAT
 TEXT ".8";	B=.; 1; A; DOT8
 TEXT "0<";	A=.; 1; B; LESSZ

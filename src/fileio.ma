@@ -62,7 +62,7 @@ FILEBL,	0
 	.EXTERNAL SBFILE, SBDEV
 
 	USR=7700
-/ FIle Info Block fields:
+	/ File Info Block layout
 	DEVADR=00	/ Device handler entry
 	DEVNUM=01	/ OS8 Device number
 	BUFADR=02	/ Buffer address
@@ -678,3 +678,4 @@ WRITE$:	CDF .		/CHANGE FIELD BACK.
 	DCA AC
 	JMS PUT1	/OUTPUT CURRENT BLOCK #.
 	JMP I FLUSH1
+n
