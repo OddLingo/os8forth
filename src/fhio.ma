@@ -231,21 +231,22 @@ FHOPEN,	0
 	JMS GETSP	/ Sync stack
 	POP FLEN	/ Length of name
 	POP FADDR	/ Address of name
-	CDF .
 	JMS NEWFIB	/ Get a free FIB
-	SNA
-	JMP FAIL$
+	SNA 		/ Got one?
+	JMP FAIL$	/ No
 	JMS SETFIB	/ Make it current
 
-	JMS GETFN	/ Copy filename from F1
+	/ Copy filename from F1 into data buffer,
+	/ then parse it into SBNAME.
+	JMS GETFN
 	TAD THEFIB+BUFADR	/ Parse it
 	JMS $FPARSE
 	JMS GETHDL	/ Make sure handler loaded
+
 	/ $FILEIO returns status in AC:
 	/   =0	  Sucess
 	/   >=0	  FILE NOT FOUND. NEW FILE CREATED.
 	/   <0	  FATAL DEVICE ERROR
-
 	JMS $FILEIO	/ Open the file
 	2
 	SBFILE		/ SB name pointer
