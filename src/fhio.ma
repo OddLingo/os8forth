@@ -9,7 +9,7 @@
 	.LIST
 	.LIST MEB
 
-	.EXTERNAL TIB, ENGINE
+	.EXTERNAL SYMBOL, ENGINE
 	CHBLK=^D384    / Characters per block
 
 	.MACRO CALL RTN
@@ -116,7 +116,7 @@ THIS$:	ISZ FIBNUM	/ Make it 1-origin
 SETFID,	0
 	CIF .
 	JMS SETFIB
-	CDF TIB
+	CDF SYMBOL
 	CIF ENGINE
 	JMP I SETFID
 
@@ -214,7 +214,7 @@ GETFN,	0
 	STA		/ dest-1
 	TAD THEFIB+BUFADR
 	DCA OUTPTR
-LOOP$:	CDF TIB	/ Read from dictionary
+LOOP$:	CDF SYMBOL	/ Read from dictionary
 	TAD I INPTR
 	CDF .	/ Write here
 	DCA I OUTPTR
@@ -255,7 +255,7 @@ FHOPEN,	0
 	PUSH FIBNUM	/ Return id number
 	PUSH		/ And ok status
 	JMS PUTSP	/ Resync stack
-	CDF TIB
+	CDF SYMBOL
 	CIF ENGINE
 	JMP I FHOPEN
 
@@ -287,7 +287,7 @@ FHCRE,	0
 	TAD FIBNUM	/ Return id number
 	MQL
 	CLA IAC		/ And ok status
-	CDF TIB
+	CDF SYMBOL
 	CIF ENGINE
 	JMP I FHCRE
 
@@ -305,7 +305,7 @@ FHCLOS,	0
 	CLA
 	DCA THEFIB+FILFLG / Mark unused
 	JMS RSTFIB	/ Copy it back
-	CDF TIB
+	CDF SYMBOL
 	CIF ENGINE
 	JMP I FHCLOS
 
@@ -318,7 +318,7 @@ FHFLUS,	0
 	14
 	HLT
 	JMS RSTFIB
-	CDF TIB
+	CDF SYMBOL
 	CIF ENGINE
 	JMP I FHFLUS
 
@@ -337,7 +337,7 @@ LOOP$:	CDF .
 	JMS $FILEIO
 	7		/ ICHAR
 	JMP EOF$
-	CDF TIB
+	CDF SYMBOL
 	AND [177]	/ Strip parity bit
 	DCA CHAR
 	TAD CHAR	/ Check EOF
@@ -363,7 +363,7 @@ EOF$:	STA		/ -1 means end of file
 	DCA CHAR	/ Stash length
 	CDF .
 	JMS RSTFIB	/ Save the FIB
-	CDF TIB
+	CDF SYMBOL
 	CIF ENGINE
 	TAD CHAR	/ Length in AC
 	JMP I FHRDL
@@ -376,7 +376,7 @@ FHRD,	0
 	5
 	HLT
 	JMS RSTFIB
-	CDF TIB
+	CDF SYMBOL
 	CIF ENGINE
 	JMP I FHRD
 
@@ -389,7 +389,7 @@ FHWRL,	0
 	MQA
 	CIA
 	DCA LIMIT	/ Count
-LOOP$:	CDF TIB
+LOOP$:	CDF SYMBOL
 	TAD I INPTR
 	JMS OCHAR$
 	ISZ LIMIT
@@ -399,7 +399,7 @@ LOOP$:	CDF TIB
 	TAD (12)
 	JMS OCHAR$
 DONE$:	JMS RSTFIB
-	CDF TIB
+	CDF SYMBOL
 	CIF ENGINE
 	JMP I FHWRL
 
@@ -462,7 +462,7 @@ FHPOS,	0
 	JMS PUTSP	/ Resync stack
 
 	CIF ENGINE
-	CDF TIB
+	CDF SYMBOL
 	ISZ FHPOS	/ Skip error return
 	JMP I FHPOS
 
@@ -509,7 +509,7 @@ PUSHS,	0
 	TAD OURSP
 	DCA OURSP
 	TAD T1
-	CDF TIB		/ Stack is in other field
+	CDF SYMBOL		/ Stack is in other field
 	DCA I OURSP
 	CDF .
 	JMP I PUSHS
@@ -519,7 +519,7 @@ PUSHS,	0
 POPS,	0
 	TAD I POPS	/ Get destination
 	DCA T1
-	CDF TIB
+	CDF SYMBOL
 	TAD I OURSP	/ Fetch from stack
 	ISZ OURSP
 	CDF .
@@ -528,7 +528,7 @@ POPS,	0
 	JMP I POPS
 
 POPA,	0
-	CDF TIB		/ Stack is in F1
+	CDF SYMBOL		/ Stack is in F1
 	TAD I OURSP	/ Fetch from stack
 	ISZ OURSP
 	CDF .

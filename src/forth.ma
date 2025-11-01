@@ -3055,7 +3055,7 @@ POS$:	HLT   		/ Error
 
 .SBTTL  Built-in word definitions
 
-	.DSECT PREDEF
+	.DSECT SYMBOL
 	FIELD 1
 WRDBUF,	ZBLOCK 20	/ Assemble ASCII token here
 NAME6,	ZBLOCK 10	/ Sought word here in SIXBIT
