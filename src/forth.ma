@@ -33,9 +33,9 @@
 	JMS I [RTN]
 	.ENDM
 
-/ A "far call" calls a routine in another field.
+/ An IOCALL calls a routine in another field.
 / This is used for file operations.
-	.MACRO FCALL RTN
+	.MACRO IOCALL RTN
 	CIF RTN; JMS RTN
 	.ENDM
 
@@ -2446,7 +2446,7 @@ LEN6$:	ISZ LIMIT
 	.EXTERNAL SETFID,FHOPEN,FHCLOS,FHRDL
 FILOPN,	0
 	POP	/?? Ignore mode for now
-	FCALL FHOPEN	/ Call OS8 interface
+	IOCALL FHOPEN	/ Call OS8 interface
 	JMP I FILOPN
 
 SETSTR,	0	/ Describe a counted string
@@ -2463,7 +2463,7 @@ FILCRE,	0
 	POP	/?? Ignore mode for now
 	/ Point at filename string
 	JMS SETSTR  / Load MQ,AC from stack
-	FCALL FHCRE	/ OS8 interface
+	IOCALL FHCRE	/ OS8 interface
 	/ AC is fileid, MQ is status
 	PUSH
 	CLA MQA
@@ -2473,7 +2473,7 @@ FILCRE,	0
 // CLOSE-FILE ( id -- status )
 FILCLS,	0
 	TAD I SP
-	FCALL FHCLOS
+	IOCALL FHCLOS
 	DCA I SP
 	JMP I FILCLS
 
@@ -2481,7 +2481,7 @@ FILCLS,	0
 	.EXTERNAL FHFLUS
 FILFLU,	0
 	TAD I SP
-	FCALL FHFLUS
+	IOCALL FHFLUS
 	DCA I IP
 	JMP I FILFLU
 
@@ -2514,13 +2514,13 @@ FILRD,	0	/ Read a block from the file
 / At EOF ior=-1, flag=0, u2=0
 FILRDL,	0
 	TAD I SP
-	FCALL SETFID	/ Set File-ID
+	IOCALL SETFID	/ Set File-ID
 	POP
 	TAD I SP
 	MQL		/ Max length to MQ
 	POP
 	TAD I SP	/ Address to AC
-	FCALL FHRDL	/ Read one line
+	IOCALL FHRDL	/ Read one line
 	CDF TIB
 	SPA		/ Positive AC is u2
 	JMP EOF$
@@ -2543,10 +2543,10 @@ FILWR,	0   / Write a block
 	.EXTERNAL FHWRL
 FILWRL,	0   / Write a line
 	TAD I SP
-	FCALL SETFID	/ Set fILE id
+	IOCALL SETFID	/ Set fILE id
 	POP
 	JMS SETSTR	/ Load MQ,AC
-	FCALL FHWRL
+	IOCALL FHWRL
 	CIF .
 	PUSH		/ Status
 	JMP I FILWRL
@@ -3046,7 +3046,7 @@ SPOP$:	0>
 // in characters.
 	.EXTERNAL FHPOS
 FILPOS,	0
-	FCALL FHPOS	/ Get position
+	IOCALL FHPOS	/ Get position
 POS$:	HLT   		/ Error
 	/ Double posotion is now on stack
 	CLA
