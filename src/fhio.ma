@@ -7,9 +7,26 @@
 	.NOLIST
 	.INCLUDE COMMON.MA
 	.LIST
+	.LIST MEB
 
 	.EXTERNAL TIB, ENGINE
-	CHBLK=^D368    / Characters per block
+	CHBLK=^D384    / Characters per block
+
+	.MACRO CALL RTN
+	JMS I [RTN]
+	.ENDM
+
+	.MACRO PUSH VAL
+	.IF NB VAL <TAD VAL
+	>
+	CALL PUSHS
+	.ENDM
+
+	.MACRO POP DEST
+	.IF NB DEST <CALL POPS; DEST>
+	.IF BL DEST <CALL POPA>
+	DEST
+	.ENDM
 
 	.XSECT FHIDX
 	FIELD 2
@@ -26,11 +43,35 @@ FIBNUM,	0	/ The file-id
 LIMIT,	0
 COUNT,	0
 CHAR,	0
-FADDR,	0
-FLEN,	0
-HIGH,	0
-LOW,	0
-	.DSECT FHBUF
+FADDR,	0	/ Filename address
+FLEN,	0	/ Filename length
+HIGH,	0	/ High 12 bits
+LOW,	0	/ Low 12 bits
+OURSP,	0	/ Local copy of SP
+REALSP,	SP	/ Real engine stack pointer
+T1,	0
+
+// Push the AC onto the Forth stack.
+// The SP is in Field 0 and the stack is in
+// Field 1.  This code is in Field 2.
+	.EXTERNAL SP
+// Synchronize real SP with local copy
+GETSP,	0
+	CDF ENGINE
+	TAD I REALSP
+	DCA OURSP
+	CDF .
+	JMP I GETSP
+
+// Synchronize real SP from local copy
+PUTSP,	0
+	TAD OURSP
+	CDF ENGINE
+	DCA I REALSP
+	CDF .
+	JMP I PUTSP
+
+	.DSECT BLOCKS
 	FIELD 2
 / File Information Blocks and buffers.
 FIB1,	.FIB	,,BUF1
@@ -187,9 +228,9 @@ LOOP$:	CDF TIB	/ Read from dictionary
 	.EXTERNAL $FPARSE, SBFILE, SBDEV
 // Open file. Filename ptr in AC, length in MQ.
 FHOPEN,	0
-	DCA FADDR
-	MQA
-	DCA FLEN
+	JMS GETSP	/ Sync stack
+	POP FLEN	/ Length of name
+	POP FADDR	/ Address of name
 	CDF .
 	JMS NEWFIB	/ Get a free FIB
 	SNA
@@ -211,10 +252,9 @@ FHOPEN,	0
 	JMP FAIL$
 
 	JMS RSTFIB	/ Update our copy
-
-	TAD FIBNUM	/ Return id number
-	MQL
-	CLA		/ And ok status
+	PUSH FIBNUM	/ Return id number
+	PUSH		/ And ok status
+	JMS PUTSP	/ Resync stack
 	CDF TIB
 	CIF ENGINE
 	JMP I FHOPEN
@@ -373,66 +413,123 @@ OCHAR$:	0
 	/ AC >= 0: out of room
 	/ AC<0: fatal
 
-// Get file position as block + offset.
-// Return block# in MQ, offset in AC.
+	PAGE
+// Get file position as character number.  This
+// is a double-length value ocmputed from block
+// number and position within block.  File-id
+// is on the stack.
 	.ENTRY FHPOS
 FHPOS,	0
-	CDF .
-	TAD THEFIB+BUFPOS
+	JMS GETSP
+	POP
+	JMS SETFIB
+	TAD THEFIB+BUFPOS / BUFPOS goes 0 to 777
 	AND [774]
-	RTR
+	CLL RTR
 	DCA LOW	 / Save shifted upper 7 bits
+	/ LOW is now 0 to 177
 	TAD THEFIB+BUFPOS
 	AND [3]
 	DCA CHAR	/ 0,1,2
 	TAD LOW / Upper bits times 3
-	MQL MUY
+	MQL MUY / Result is 0 to 575
 	3
 	MQA		/ Plus char offset
-	TAD CHAR
-	DCA LOW
+	TAD CHAR	/ Now 0 to 577
+	DCA CHAR
+	/ Now merge block and character
 	STA		/ Relative blkno
 	TAD THEFIB+FILBLK
 	SPA SZA		/ Hack zero blk
 	CLA
-	MQL
-	TAD LOW		/ Bytes in AC
+	MQL MUY		/ Block*384
+	CHBLK
+	DCA HIGH	/ High part
+	MQA
+	DCA LOW
+
+	/ Now add 12bit byte offset to
+	/ 24bit block offset
+	CLL
+	TAD LOW
+	TAD CHAR
+	DCA LOW
+	SZL		/ Propagate carry bit
+	ISZ HIGH
+
+	PUSH LOW	/ Push doubleword total
+	PUSH HIGH
+	JMS PUTSP	/ Resync stack
+
 	CIF ENGINE
 	CDF TIB
 	ISZ FHPOS	/ Skip error return
 	JMP I FHPOS
 
+// Set file position.  Stack has doubleword character
+// position that we convert to block number and
+// position within block, allowing for the 3-in-2
+// special coding format.
 FHSPOS,	0
+	/ Get desired file position
+	JMS GETSP
+	POP HIGH	/ High 12 bits
+	POP LOW		/ Low 12 bits
+	JMS PUTSP
+
+	/ Divide by 384 to get block number.
+	TAD LOW
+	MQL
+	TAD HIGH
+	DVI
+	CHBLK		/ Chars per block
+	DCA COUNT	/ Remainder is offset
+	MQA
+	IAC		/ We use 1-origin
+	DCA HIGH	/ Quotient is block
+
+	/ Compute our char position within the
+	/ block, 3 characters per two words.
+	TAD COUNT  	/ Divide chars by 3
+	MQL
+	DVI
+	3
+	DCA CHAR	/ Remainder is 0,1,2
+	MQA 		/ Quotient is word offset
+	CLL RTL		/ Make room for char pos
+	TAD CHAR	/ Add it back in
+	DCA LOW
 	JMP I FHSPOS
 
 	PAGE
-// Push the AC onto the Forth stack.
-// The SP is in Field 0 and the stack is in
-// Field 1.  This code is in Field 2.
-PSHAC,	0
-	DCA TEMP$
-	CDF ENGINE
+// Push AC on Forth data stack
+PUSHS,	0
+	DCA T1
 	STA
-	TAD I [20]	/ Old SP-1
-	DCA OURSP
 	TAD OURSP
-	DCA I [20]
-	CDF TIB
-	TAD TEMP$
+	DCA OURSP
+	TAD T1
+	CDF TIB		/ Stack is in other field
 	DCA I OURSP
 	CDF .
-	JMP I PSHAC
-TEMP$:	0
-OURSP,	0
-POPAC,	0
-	CDF ENGINE
-	TAD I [20]
-	DCA OURSP
-	TAD OURSP
-	IAC
-	DCA I [20]
-	CDF TIB
-	TAD I OURSP
-	CDF .
-	JMP I POPAC
+	JMP I PUSHS
 
+// Pop data from Forth stack into local memory.
+// Destination address is at PC+1.
+POPS,	0
+	TAD I POPS	/ Get destination
+	DCA T1
+	CDF TIB
+	TAD I OURSP	/ Fetch from stack
+	ISZ OURSP
+	CDF .
+	DCA I T1	/ Store local
+	ISZ POPS	/ Skip over arg
+	JMP I POPS
+
+POPA,	0
+	CDF TIB		/ Stack is in F1
+	TAD I OURSP	/ Fetch from stack
+	ISZ OURSP
+	CDF .
+	JMP I POPA

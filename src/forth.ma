@@ -88,6 +88,7 @@ TEXT2,	0
 
 	.ZSECT COMMON
 	FIELD 0
+	.GLOBAL SP
 /// Forth machine registers
 SP,	0	/ Data stack pointer
 RSP,	0	/ Return stack pointer
@@ -2445,14 +2446,7 @@ LEN6$:	ISZ LIMIT
 	.EXTERNAL SETFID,FHOPEN,FHCLOS,FHRDL
 FILOPN,	0
 	POP	/?? Ignore mode for now
-	/ Point at filename string
-	JMS SETSTR  / Load MQ,AC from stack
 	FCALL FHOPEN	/ Call OS8 interface
-	/ MQ is fileid, AC is status
-	PUSH
-	CLA MQA
-	PUSH
-	CALL SWAP	/ Put status on top
 	JMP I FILOPN
 
 SETSTR,	0	/ Describe a counted string
@@ -3052,17 +3046,10 @@ SPOP$:	0>
 // in characters.
 	.EXTERNAL FHPOS
 FILPOS,	0
-	TAD I SP	/ Set file id
-	POP
-	FCALL SETFID
 	FCALL FHPOS	/ Get position
 POS$:	HLT   		/ Error
-	PUSH		/ Push low part
-	MQA
-	PUSH		/ Push high part
-	PUSH (^D384)	/ Merge into 24bit position
-	JMS MSTAR
-	JMS MPLUS
+	/ Double posotion is now on stack
+	CLA
 	PUSH		/ flag
 	JMP I FILPOS
 
