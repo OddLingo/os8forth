@@ -128,17 +128,6 @@ THIS$:	ISZ FIBNUM	/ Make it 1-origin
 	TAD FIBNUM
 	JMP I NEWFIB
 
-// A way for the ENGINE to set the current file,
-// to be followed immediately by a read/write call.
-// Local routines can call SETFIB directly.
-	.ENTRY SETFID
-SETFID,	0
-	CIF .
-	JMS SETFIB
-	CDF SYMBOL
-	CIF ENGINE
-	JMP I SETFID
-
 // Select active FIB by number.  For convenience,
 // We copy it to THEFIB.  Fib number origin 1.
 SETFIB,	0
@@ -171,7 +160,9 @@ RSTFIB,	0
 	TAD FIBPTR
 	JMP SETIT
 
-// Get device information
+// Get device information.  The device name must
+// have already been parsed into SBDEV, 2 sixbit
+// words.
 GETHDL,	0
 	CLA
 	TAD SBDEV	/ Copy device name
@@ -181,7 +172,7 @@ GETHDL,	0
 	CDF .
 	CALUSR 12	/ INQUIRE request
 INFO$:	DEVICE DSK
-ENTRY$:	0
+ENTRY$:	0		/ Handler addr appears here
 	HLT
 	TAD INFO$+1	/ Save device number
 	DCA CHAR
@@ -198,7 +189,7 @@ ENTRY$:	0
 	DCA ARG3$
 
 	TAD SBDEV	/ Copy device name
-	DCA DNAME$
+	DCA DNAME$	/ for FETCH request.
 	TAD SBDEV+1
 	DCA DNAME$+1
 	CDF .

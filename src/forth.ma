@@ -2446,7 +2446,7 @@ LEN6$:	ISZ LIMIT
 // ior is the implementation-defined I/O result code
 // and fileid is undefined.
 
-	.EXTERNAL SETFID,FHOPEN,FHCLOS,FHRDL
+	.EXTERNAL FHOPEN,FHCLOS,FHRDL
 FILOPN,	0
 	POP	/?? Ignore mode for now
 	IOCALL FHOPEN	/ Call OS8 interface
