@@ -181,6 +181,9 @@ LAYDN,	0
 	ISZ HERE
 	JMP I LAYDN
 
+// The ENGINE section in Field 0 contains the
+// PDP-8 code that implements the "Forth machine".
+// It is usually invisible to the Forth programmer.
 	.RSECT ENGINE
 	.SBTTL Startup
 	.ENABLE SIXBIT
@@ -2460,14 +2463,7 @@ SETSTR,	0	/ Describe a counted string
 // CREATE-FILE ( addr len mode -- id status )
 	.EXTERNAL FHCRE
 FILCRE,	0
-	POP	/?? Ignore mode for now
-	/ Point at filename string
-	JMS SETSTR  / Load MQ,AC from stack
 	IOCALL FHCRE	/ OS8 interface
-	/ AC is fileid, MQ is status
-	PUSH
-	CLA MQA
-	PUSH
 	JMP I FILCRE
 
 // CLOSE-FILE ( id -- status )
@@ -2519,14 +2515,8 @@ FILWR,	0   / Write a block
 
 // WRITE-LINE ( addr len id -- st )
 	.EXTERNAL FHWRL
-FILWRL,	0   / Write a line
-	TAD I SP
-	IOCALL SETFID	/ Set fILE id
-	POP
-	JMS SETSTR	/ Load MQ,AC
+FILWRL,	0
 	IOCALL FHWRL
-	CIF .
-	PUSH		/ Status
 	JMP I FILWRL
 
 // INCLUDE-FILE ( id -- )
@@ -3033,10 +3023,14 @@ POS$:	HLT   		/ Error
 
 .SBTTL  Built-in word definitions
 
+// The SYMBOL section in Field 1 contains the Forth
+// "address space" as seen by a Forth programmer.
+// The dictionary, stacks, and Terminal Input
+// Buffer are all here.
 	.DSECT SYMBOL
 	FIELD 1
-WRDBUF,	ZBLOCK 20	/ Assemble ASCII token here
-NAME6,	ZBLOCK 10	/ Sought word here in SIXBIT
+WRDBUF,	ZBLOCK ^D16	/ Assemble ASCII token here
+NAME6,	ZBLOCK ^D8	/ Sought word here in SIXBIT
 ZERO,	0	/ For faking a return
 	.GLOBAL TIB
 TIB=.

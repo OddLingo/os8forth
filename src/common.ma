@@ -332,20 +332,20 @@
 /
 /	SYMBOLS
 /
-	DEVADR=00
-	DEVNUM=01
-	BUFADR=02
-	BUFFLD=03
+	DEVADR=00	/ device handler
+	DEVNUM=01	/ OS8 device number
+	BUFADR=02	/ buffer address
+	BUFFLD=03	/ buffer field
 	FILLIN=04
-	BUFPOS=05
-	FILBLK=06
-	FILFLG=07
-	FILBEG=10
-	FILSIZ=11
-	FILEND=12
-	FILNAM=13
-	FILEXT=16
-	FILDAT=17
+	BUFPOS=05	/ position within buffer
+	FILBLK=06	/ block number
+	FILFLG=07	/ flags
+	FILBEG=10	/ file first block
+	FILSIZ=11	/ blocks in file
+	FILEND=12	/ file last block
+	FILNAM=13	/ file name in SIXBIT
+	FILEXT=16	/ file extension
+	FILDAT=17	/ file date
 /
 /	MACROS
 /

@@ -107,7 +107,7 @@ NEWFIB,	0
 	DCA FIBNUM	/ Start zero origin
 	TAD MAXFIB
 	DCA LIMIT
-GETFB$:	TAD (FILES)
+GETFB$:	TAD (FILES)	/ Scan list of FIBs
 	TAD FIBNUM
 	DCA FIBPTR
 	TAD I FIBPTR
@@ -245,7 +245,7 @@ LOOP$:	CDF SYMBOL	/ Read from dictionary
 
 	.ENTRY FHOPEN, FHRDL, FHRD, FHCRE
 	.EXTERNAL $FPARSE, SBFILE, SBDEV
-// Open file. Filename ptr in AC, length in MQ.
+// Open file.
 FHOPEN,	0
 	ENTER		/ Sync stack
 	POP FLEN	/ Length of name
@@ -279,12 +279,13 @@ FHOPEN,	0
 FAIL$:	CLA IAC
 	JMP .-4
 
-// Create file. Filename ptr in AC, length in MQ.
+// CREATE-FILE( addr len mode -- id status )
+// status=0 means ok.
 FHCRE,	0
-	DCA FADDR	/ Save for later
-	MQA
-	DCA FLEN	/ Save name length
-	CDF .
+	ENTER
+	POP		/ Ignore mode
+	POP FLEN
+	POP FADDR
 	JMS NEWFIB	/ Get a free FIB
 	SNA
 	JMP FAIL$
@@ -299,17 +300,15 @@ FHCRE,	0
 	SBFILE		/ SB name pointer
 	HLT
 
+	JMS INIBUF	/ Empty buffer
 	JMS RSTFIB	/ Update our copy
 
-	TAD FIBNUM	/ Return id number
-	MQL
-	CLA IAC		/ And ok status
-	CDF SYMBOL
-	CIF ENGINE
-	JMP I FHCRE
+	PUSH FIBNUM	/ Return id number
+DONE$:	PUSH		/ And ok status
+	RETURN FHCRE
 
-FAIL$:	CLA
-	JMP .-4
+FAIL$:	STA		/ -1 means failed
+	JMP DONE$
 
 // CLOSE-FILE ( id -- status )
 	.ENTRY FHCLOS
@@ -317,7 +316,7 @@ FHCLOS,	0
 	ENTER		/ Sync stack
 	POP		/ Get file-id
 	JMS SETFIB	/ Select FIB
-	JMS $FILEIO
+	JMS $FILEIO	/ Close it
 	13
 	HLT
 	CLA
@@ -332,7 +331,7 @@ FHFLUS,	0
 	ENTER
 	POP
 	JMS SETFIB	/ Get correct FIB
-	JMS $FILEIO	/ Close it
+	JMS $FILEIO	/ Flush buffer
 	14
 	HLT
 	JMS RSTFIB	/ Put it back
@@ -404,34 +403,38 @@ FHRD,	0
 	CIF ENGINE
 	JMP I FHRD
 
-// WRITE-LINE.  Address in AC, count in MQ.
-// SETFIB must have been called first.
+// WRITE-LINE ( addr len id -- stat )
 	.ENTRY FHWRL
 FHWRL,	0
+	ENTER
+	POP
+	JMS SETFIB
+	POP		/ Byte count
+	CIA
+	DCA LIMIT
+	POP
 	TAD (-1)
 	DCA INPTR	/ Src-1
-	MQA
-	CIA
-	DCA LIMIT	/ Count
 LOOP$:	CDF SYMBOL
-	TAD I INPTR
-	JMS OCHAR$
+	TAD I INPTR	/ Get next char
+	JMS OCHAR$	/ add write it
 	ISZ LIMIT
 	JMP LOOP$
 	TAD (15)	/ Append CRLF
 	JMS OCHAR$
 	TAD (12)
 	JMS OCHAR$
-DONE$:	JMS RSTFIB
-	CDF SYMBOL
-	CIF ENGINE
-	JMP I FHWRL
-
+	CLA	
+DONE$:	PUSH		/ Status
+	JMS RSTFIB
+	RETURN FHWRL
+ERR$:	STA
+	JMP DONE$
 OCHAR$:	0
 	CDF .
 	JMS $FILEIO	/ OCHAR
 	6
-	JMP DONE$	/ Oops
+	HLT		/ Oops
 	CLA
 	JMP I OCHAR$
 	/ AC >= 0: out of room
@@ -553,3 +556,14 @@ POPA,	0
 	ISZ OURSP
 	CDF .
 	JMP I POPA
+
+INIBUF,	0     / Fill buffer with NUL
+	STA
+	TAD THEFIB+BUFADR
+	DCA OUTPTR
+	TAD (-400)
+	DCA LIMIT
+LOOP$:	DCA I OUTPTR
+	ISZ LIMIT
+	JMP LOOP$
+	JMP I INIBUF
