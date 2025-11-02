@@ -1,7 +1,8 @@
 	.TITLE Forth I/O Interface
 // This module is an interface between the Forth
-// World in Fields 0 and 1 and the OS8 I/O world
-// in Field 2.
+// World in Fields 0 (the ENGINE) and 1 (the SYMBOL
+// table) and the OS8 I/O world in Field 2.
+	.EXTERNAL SYMBOL, ENGINE
 
 / Get interfaces to the FILEIO package.
 	.NOLIST
@@ -9,13 +10,17 @@
 	.LIST
 	.LIST MEB
 
-	.EXTERNAL SYMBOL, ENGINE
+// OS8 normally stores 3 ASCII characters in two
+// adjacent words.  This means that a 256-word
+// "block" in the file system holds 384 characters,
 	CHBLK=^D384    / Characters per block
 
 	.MACRO CALL RTN
 	JMS I [RTN]
 	.ENDM
 
+// Operate on the stack, which is part of the
+// SYMBOL table.
 	.MACRO PUSH VAL
 	.IF NB VAL <TAD VAL
 	>
@@ -28,16 +33,17 @@
 	.IF BL DEST <CALL POPA>
 	.ENDM
 
-	/ Use this coming from engine
+// The ENTER and RETURN macros synchronize use
+// of the stack and address spaces.  They must
+// be used as first and last lines in routines
+// called from the ENGINE.
 	.MACRO ENTER
 	JMS GETSP
 	.ENDM
 
-	/ Use this to return to engine
 	.MACRO RETURN FROM
 	JMS PUTSP
 	CIF ENGINE
-	CDF SYMBOL
 	JMP I FROM
 	.ENDM
 
@@ -81,7 +87,7 @@ PUTSP,	0
 	TAD OURSP
 	CDF ENGINE
 	DCA I REALSP
-	CDF .
+	CDF SYMBOL
 	JMP I PUTSP
 
 	.DSECT BLOCKS
@@ -308,30 +314,29 @@ FAIL$:	CLA
 // CLOSE-FILE ( id -- status )
 	.ENTRY FHCLOS
 FHCLOS,	0
-	CDF .
-	JMS SETFIB
+	ENTER		/ Sync stack
+	POP		/ Get file-id
+	JMS SETFIB	/ Select FIB
 	JMS $FILEIO
 	13
 	HLT
 	CLA
 	DCA THEFIB+FILFLG / Mark unused
 	JMS RSTFIB	/ Copy it back
-	CDF SYMBOL
-	CIF ENGINE
-	JMP I FHCLOS
+	PUSH		/ Zero status
+	RETURN FHCLOS
 
 // FLUSH-FILE (	id -- status )
 	.ENTRY FHFLUS
 FHFLUS,	0
-	CDF .
-	JMS SETFIB
-	JMS $FILEIO
+	ENTER
+	POP
+	JMS SETFIB	/ Get correct FIB
+	JMS $FILEIO	/ Close it
 	14
 	HLT
-	JMS RSTFIB
-	CDF SYMBOL
-	CIF ENGINE
-	JMP I FHFLUS
+	JMS RSTFIB	/ Put it back
+	RETURN FHFLUS
 
 	PAGE
 // READ-LINE ( addr len id -- len stat )
@@ -434,9 +439,9 @@ OCHAR$:	0
 
 	PAGE
 // Get file position as character number.  This
-// is a double-length value ocmputed from block
-// number and position within block.  File-id
-// is on the stack.
+// is a double-length value computed from block
+// number and 3-in-2 position within block.
+// File-id is on the stack.
 	.ENTRY FHPOS
 FHPOS,	0
 	ENTER		/ Sync stack

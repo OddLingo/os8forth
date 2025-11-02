@@ -2472,9 +2472,7 @@ FILCRE,	0
 
 // CLOSE-FILE ( id -- status )
 FILCLS,	0
-	TAD I SP
 	IOCALL FHCLOS
-	DCA I SP
 	JMP I FILCLS
 
 // FLUSH-FILE ( id -- status )
