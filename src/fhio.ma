@@ -28,6 +28,12 @@
 	.IF BL DEST <CALL POPA>
 	.ENDM
 
+	.MACRO RETURN FROM
+	CIF ENGINE
+	CDF SYMBOL
+	JMP I FROM
+	.ENDM
+
 	.XSECT FHIDX
 	FIELD 2
 / Auto-index pointers for copying things.
@@ -324,16 +330,21 @@ FHFLUS,	0
 	JMP I FHFLUS
 
 	PAGE
-// Read a line of text.  F1 buffer in AC, Length in MQ.
+// READ-LINE ( addr len id -- len stat )
+// Read a line of text.
 // This acts like ACCEPT.  Final length in AC, -1 if
 // EOF.  Not counting CRLF.
 FHRDL,	0
-	TAD (-1)
-	DCA OUTPTR
-	MQA	/ Get max len
+	JMS GETSP	/ Sync stack
+	POP
+	JMS SETFIB	/ Select FIB
+	POP
 	CIA
-	DCA LIMIT
+	DCA LIMIT	/ Get buffer size
 	DCA COUNT
+	POP
+	TAD (-1)
+	DCA OUTPTR	/ Buff addr minus 1
 LOOP$:	CDF .
 	JMS $FILEIO
 	7		/ ICHAR
@@ -359,15 +370,18 @@ LOOP$:	CDF .
 	SKP 		/ Don't back up
 EOL$:	TAD (-2)	/ Do not count CRLF
 	TAD COUNT
-	SKP
-EOF$:	STA		/ -1 means end of file
-	DCA CHAR	/ Stash length
-	CDF .
-	JMS RSTFIB	/ Save the FIB
-	CDF SYMBOL
-	CIF ENGINE
-	TAD CHAR	/ Length in AC
-	JMP I FHRDL
+	PUSH
+	IAC
+	PUSH
+	PUSH
+	JMP DONE$
+EOF$:	PUSH		/ Len zero at EOF
+	PUSH		/ Flag zero
+	STA
+	PUSH		/ ior -1
+DONE$:	JMS RSTFIB	/ Save the FIB
+	JMS PUTSP	/ resync stack
+	RETURN FHRDL
 
 // Read a block.
 FHRD,	0

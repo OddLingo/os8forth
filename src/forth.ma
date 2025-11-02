@@ -193,7 +193,7 @@ INIT,	IOF		/ No interrupts
 	JMS RESET	/ Init everything
 	KCC		/ Clear device flags
 	TCF
-	CDF TIB	/ Indirect references to F1
+	CDF SYMBOL	/ Indirect references to F1
 	PUSH (XINIT)	/ Run INIT word
 	JMS DOEXEC
 RESUME,	JMS QUIT	/ Start interpreter
@@ -680,7 +680,7 @@ LOOP$:	TAD I TEXT1	/ Advance and fetch
 MSG,	0
 LOOP$:	CDF .		/ We can indirect through MSG
 	TAD I MSG	/ Get next 2 chars
-	CDF TIB
+	CDF SYMBOL
 	ISZ MSG		/ Advance over
 	SNA
 	JMP I MSG	/ Oops, zero so stop
@@ -746,7 +746,7 @@ FFETCH,	0
 	JMS SETFLD
 	JMS CHANGE
 	TAD I T1	/ Far fetch
-	CDF TIB		/ Back to dictionary
+	CDF SYMBOL		/ Back to dictionary
 	DCA I SP
 	JMP I FFETCH
 
@@ -757,7 +757,7 @@ FSTORE,	0
 	TAD I SP	/ The value
 	JMS CHANGE
 	DCA I T1	/ Far Store
-	CDF TIB		/ Back to dictionary
+	CDF SYMBOL		/ Back to dictionary
 	POP
 	JMP I FSTORE
 
@@ -1126,7 +1126,7 @@ SYSCON,	0		/ runtime for System constants
 	DCA T1
 	CDF .
 	TAD I T1
-	CDF TIB	/ Field One back on
+	CDF SYMBOL	/ Field One back on
 	PUSH
 	JMP I SYSCON
 
@@ -1147,7 +1147,7 @@ FETCH,	0
 	CDF .
 	CLA
 	TAD I LOW
-	CDF TIB
+	CDF SYMBOL
 	DCA I SP
 	JMP I FETCH
 
@@ -1166,7 +1166,7 @@ STORE,	0
 	CLA
 	TAD T1
 	DCA I LOW
-	CDF TIB
+	CDF SYMBOL
 	JMP I STORE
 
 // D= ( d1 d2 -- f )	Compare double
@@ -2513,27 +2513,7 @@ FILRD,	0	/ Read a block from the file
 / u1 = u2 the line terminator has yet to be reached.
 / At EOF ior=-1, flag=0, u2=0
 FILRDL,	0
-	TAD I SP
-	IOCALL SETFID	/ Set File-ID
-	POP
-	TAD I SP
-	MQL		/ Max length to MQ
-	POP
-	TAD I SP	/ Address to AC
 	IOCALL FHRDL	/ Read one line
-	CDF TIB
-	SPA		/ Positive AC is u2
-	JMP EOF$
-	DCA I SP	/ Actual length to stack
-	IAC
-	PUSH		/ TRUE flag to stack
-	PUSH		/ ior zero
-	JMP I FILRDL
-EOF$:	CLA
-	DCA I SP	/ Zero length
-	PUSH  		/ Zero flag
-	STA
-	PUSH		/ IOR -1
 	JMP I FILRDL
 
 FILWR,	0   / Write a block
@@ -2882,7 +2862,7 @@ RECOVR,	0
 	TEXT "?ERROR "
 	CDF .
 	TAD I RECOVR	/ 2-char code
-	CDF TIB
+	CDF SYMBOL
 	DCA CHAR
 	CALL P2SIX
 	CALL CRLF
@@ -3025,7 +3005,7 @@ LAYLIT,	0		/ Lay a literal and skip it
 	CLA
 	CDF .		/ Fetch from instruction space
 	TAD I LAYLIT
-	CDF TIB
+	CDF SYMBOL
 	JMS LAYDN
 	ISZ LAYLIT
 	JMP I LAYLIT
