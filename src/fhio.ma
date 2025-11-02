@@ -28,7 +28,14 @@
 	.IF BL DEST <CALL POPA>
 	.ENDM
 
+	/ Use this coming from engine
+	.MACRO ENTER
+	JMS GETSP
+	.ENDM
+
+	/ Use this to return to engine
 	.MACRO RETURN FROM
+	JMS PUTSP
 	CIF ENGINE
 	CDF SYMBOL
 	JMP I FROM
@@ -234,7 +241,7 @@ LOOP$:	CDF SYMBOL	/ Read from dictionary
 	.EXTERNAL $FPARSE, SBFILE, SBDEV
 // Open file. Filename ptr in AC, length in MQ.
 FHOPEN,	0
-	JMS GETSP	/ Sync stack
+	ENTER		/ Sync stack
 	POP FLEN	/ Length of name
 	POP FADDR	/ Address of name
 	JMS NEWFIB	/ Get a free FIB
@@ -261,10 +268,7 @@ FHOPEN,	0
 	JMS RSTFIB	/ Update our copy
 	PUSH FIBNUM	/ Return id number
 	PUSH		/ And ok status
-	JMS PUTSP	/ Resync stack
-	CDF SYMBOL
-	CIF ENGINE
-	JMP I FHOPEN
+	RETURN FHOPEN	/ Resync stack
 
 FAIL$:	CLA IAC
 	JMP .-4
@@ -335,7 +339,7 @@ FHFLUS,	0
 // This acts like ACCEPT.  Final length in AC, -1 if
 // EOF.  Not counting CRLF.
 FHRDL,	0
-	JMS GETSP	/ Sync stack
+	ENTER		/ Sync stack
 	POP
 	JMS SETFIB	/ Select FIB
 	POP
@@ -435,8 +439,8 @@ OCHAR$:	0
 // is on the stack.
 	.ENTRY FHPOS
 FHPOS,	0
-	JMS GETSP
-	POP
+	ENTER		/ Sync stack
+	POP		/ Get file-id
 	JMS SETFIB
 	TAD THEFIB+BUFPOS / BUFPOS goes 0 to 777
 	AND [774]
@@ -474,12 +478,8 @@ FHPOS,	0
 
 	PUSH LOW	/ Push doubleword total
 	PUSH HIGH
-	JMS PUTSP	/ Resync stack
-
-	CIF ENGINE
-	CDF SYMBOL
 	ISZ FHPOS	/ Skip error return
-	JMP I FHPOS
+	RETURN FHPOS	/ Resync stack
 
 // Set file position.  Stack has doubleword character
 // position that we convert to block number and
