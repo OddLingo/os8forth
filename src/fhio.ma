@@ -136,39 +136,34 @@ SETFIB,	0
 	DCA FIBPTR	/ Ptr into FIB table
 	TAD I FIBPTR	/ Get FIB address
 	DCA FIBPTR	/ Now it is 'the' FIB
-	STA		/ Copy 20 words
 	TAD FIBPTR	/ From 'the' FIB
-	DCA INPTR
-	TAD (THEFIB-1)	/ to the local FIB
-SETIT,	DCA OUTPTR
-	TAD (-20)
-	DCA LIMIT
-FIBLP,	TAD I INPTR
-	DCA I OUTPTR
-	ISZ LIMIT
-	JMP FIBLP
+	DCA FROM$
+	CALL COPY
+	-20
+FROM$:	0
+	THEFIB
 	JMP I SETFIB
 
 // Restore our copy of the active FIB
 RSTFIB,	0
 	CLA
-	TAD RSTFIB	/ Borrow return point
-	DCA SETFIB
-	TAD (THEFIB-1)
-	DCA INPTR
-	STA
 	TAD FIBPTR
-	JMP SETIT
+	DCA DEST$
+	CALL COPY
+	-20
+	THEFIB
+DEST$:	0
+	JMP I RSTFIB
 
 // Get device information.  The device name must
 // have already been parsed into SBDEV, 2 sixbit
 // words.
 GETHDL,	0
 	CLA
-	TAD SBDEV	/ Copy device name
-	DCA INFO$
-	TAD SBDEV+1
-	DCA INFO$+1
+	CALL COPY
+	-2
+	SBDEV
+	INFO$
 	CDF .
 	CALUSR 12	/ INQUIRE request
 INFO$:	DEVICE DSK
@@ -188,11 +183,10 @@ ENTRY$:	0		/ Handler addr appears here
 	IAC
 	DCA ARG3$
 
-	TAD SBDEV	/ Copy device name
-	DCA DNAME$	/ for FETCH request.
-	TAD SBDEV+1
-	DCA DNAME$+1
-	CDF .
+	CALL COPY	/ Copy device name
+	-2
+	SBDEV
+	DNAME$
 	CALUSR 1	/ FETCH request
 DNAME$:	DEVICE DSK
 ARG3$:	0	/ Handler load address
@@ -419,6 +413,7 @@ LOOP$:	CDF SYMBOL
 DONE$:	PUSH		/ Status
 	JMS RSTFIB
 	RETURN FHWRL
+
 ERR$:	STA
 	JMP DONE$
 OCHAR$:	0
@@ -558,3 +553,24 @@ LOOP$:	DCA I OUTPTR
 	ISZ LIMIT
 	JMP LOOP$
 	JMP I INIBUF
+
+/ General purpose copy words locally.  Follow
+/ call with negative count, from, and destination
+/ addresses
+COPY,	0
+	TAD I COPY	/ Get negative count
+	DCA LIMIT
+	ISZ COPY
+	STA
+	TAD I COPY	/ Source minus 1
+	DCA INPTR
+	ISZ COPY
+	STA
+	TAD I COPY	/ Get destination minus 1
+	DCA OUTPTR
+LOOP$:	TAD I INPTR	/ Loop copying
+	DCA I OUTPTR
+	ISZ LIMIT
+	JMP LOOP$
+	ISZ COPY	/ Skip last arg
+	JMP I COPY
