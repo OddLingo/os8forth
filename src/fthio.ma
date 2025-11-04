@@ -95,24 +95,36 @@ FLAGS,	0	/ Flags
 FIRST,	0	/ # first block in file
 NBLKS,	0	/ # blocks in file
 LAST,	0	/ # last block in file
+DEVNAM,	0;0	/ Sixbit device name
 FILNAM,	0;0;0	/ Sixbit filename
 FILEXT,	0	/ Sixbit file extension
 FILDAT,	0	/ Date
 FIBLEN=.-THEFIB
-/ Flag word layout:
-/	+-+-+-+-+-+-+-+-+-+-+-+-+
-/	! ! ! ! ! ! ! ! ! ! ! ! !
-/	+-+-+-+-+-+-+-+-+-+-+-+-+
-/	 ! !                   +- TENTATIVE
-/	 ! +--------------------- FILE OPEN
-/	 +----------------------- MODIFIED
 
+/ Flag word layout:
+/  4000 buffer has been modified
+/  2000 file is open
+/  0001 file is tentative - not yet closed
+
+/ Used by low-level dispatcher
 ARG,	0		/ Copy of input arg
 LC,	0		/ Loop counter
 TMP,	0
 AC,	0		/ In-out AC value
 FUNC,	0		/ Function code
-	.SBTTL Common routines
+
+/ Used by parser
+T0,	0	/Tmp
+T2,	0	/Tmp.
+SRC,	0	/Source pointer.
+DEST,	0	/Destination address.
+TL,	0
+OFFSET,	0
+/ Filenames are copied to TEMP in normalized
+/ form, not including separator characters.
+TEMP,	ZBLOCK 14
+
+.SBTTL Stack access routines
 
 // Push the AC onto the Forth stack.
 // The SP is in Field 0 and the stack is in
@@ -194,13 +206,13 @@ DEST$:	0
 	.SBTTL Device information
 
 // Get device information.  The device name must
-// have already been parsed into SBDEV, 2 sixbit
+// have already been parsed into DEVNAM, 2 sixbit
 // words.
 GETHDL,	0
 	CLA
 	CALL COPY
 	-2
-	SBDEV
+	DEVNAM
 	INFO$
 	CDF .
 	OS8FUN 12	/ INQUIRE request
@@ -223,7 +235,7 @@ ENTRY$:	0		/ Handler addr appears here
 
 	CALL COPY	/ Copy device name
 	-2
-	SBDEV
+	DEVNAM
 	DNAME$
 	OS8FUN 1	/ FETCH request
 DNAME$:	DEVICE DSK
@@ -240,14 +252,14 @@ TOFIB$:	DCA HANDLR	/ Save entry
 	DCA DEVNUM
 	JMP I GETHDL
 
-// Load a device handler.  The device name is at SBDEV.
+// Load a device handler.  The device name is at DEVNAM.
 HDSPOT,	7600
 	PAGE
 / Copy counted string from Forth dictionary to here
 / then put a NUL at the end.  We use the data buffer
-/ to hold the string for FPARSE.
+/ to hold the string for PARSE.
 GETFN,	0
-	CLA CMA
+	STA
 	TAD FADDR
 	DCA INPTR	/ src-1
 	TAD FLEN
@@ -269,7 +281,6 @@ LOOP$:	CDF SYMBOL	/ Read from dictionary
 	.SBTTL Forth file interface
 
 	.ENTRY FHOPEN, FHRDL, FHRD, FHCRE
-	.EXTERNAL $FPARSE, SBFILE, SBDEV
 // OPEN-FILE ( addr len -- id status )
 FHOPEN,	0
 	ENTER		/ Sync stack
@@ -280,11 +291,16 @@ FHOPEN,	0
 	JMP FAIL$	/ No
 	JMS SETFIB	/ Make it current
 
+	CALL COPY	/ Set default device
+	-2
+	DFLT$
+	DEVNAM
+
 	/ Copy filename from F1 into data buffer,
-	/ then parse it into SBNAME.
+	/ then parse it into the info block.
 	JMS GETFN
 	TAD BUFADR	/ Parse it
-	JMS $FPARSE
+	JMS PARSE
 	JMS GETHDL	/ Make sure handler loaded
 
 	/ $FILEIO returns status in AC:
@@ -293,7 +309,7 @@ FHOPEN,	0
 	/   <0	  FATAL DEVICE ERROR
 	JMS $FILEIO	/ Open the file
 	2
-	SBFILE		/ SB name pointer
+	FILNAM		/ SB name pointer
 	JMP FAIL$
 
 	JMS RSTFIB	/ Update our copy
@@ -303,6 +319,7 @@ FHOPEN,	0
 
 FAIL$:	CLA IAC
 	JMP .-4
+DFLT$:	DEVICE DSK
 
 // CREATE-FILE( addr len mode -- id status )
 // status=0 means ok.
@@ -318,11 +335,11 @@ FHCRE,	0
 
 	JMS GETFN	/ Copy filename from F1
 	TAD BUFADR	/ Parse it
-	JMS $FPARSE
+	JMS PARSE
 	JMS GETHDL	/ Make sure handler loaded
 	JMS $FILEIO	/ Create the file
 	3
-	SBFILE		/ SB name pointer
+	FILNAM		/ SB name pointer
 	HLT
 
 	JMS INIBUF	/ Empty buffer
@@ -615,6 +632,196 @@ LOOP$:	TAD I INPTR	/ Loop copying
 	ISZ COPY	/ Skip last arg
 	JMP I COPY
 
+
+	.SBTTL PARSE filenames
+	.ENABLE	7BIT
+/ Parse an ASCII device:filename.ext into SIXBIT.
+/ Source address in AC.  SIXBIT output to file info.
+
+/ Based on FPARSE by Johnny Billquist 35 years ago
+/ but integrated into the rest of the Forth I/O
+/ environment to save space.
+PARSE,	0
+	DCA SRC		/Save as source pointer.
+	TAD (DEVNAM)
+	DCA DEST	/Save as dest. address.
+
+	/ Zero out the temporary storage.
+	TAD (TEMP-1)
+	DCA OUTPTR
+	TAD (-14)	/Set loop to 14.
+	DCA LIMIT
+ZLOOP$:	DCA I OUTPTR	/ Clear a word
+	ISZ LIMIT
+	JMP ZLOOP$	/Repeat.
+
+	JMS GETDEV	/ Find device name
+	JMP NODEV	/ No device found.
+	TAD (TEMP)	/ Found so save it
+	DCA T1
+	/ GETDEV set t0
+	JMS	CPYNAM	/Copy device T0->T1
+	TAD	(-6)	/Total length is 6.
+	DCA	TL
+	TAD	(TEMP)	/Offset to start.
+	DCA	OFFSET
+
+DONAME,	JMS GETNAM	/Get file name.
+	JMP EXT$	/No filename found. Pack result.
+	TAD (TEMP+4) /Found. Set destination to tmp.
+	DCA T1
+	JMS CPYNAM	/Copy filename T0->T1
+
+EXT$:	JMS GETEXT	/Get extension.
+	JMP PACK$	/Not found. Pack result.
+	TAD (TEMP+12)	/Found. Set dest to tmp.
+	DCA T1
+	JMS CPYNAM	/Copy extension T0->T1
+
+// Pack TEMP to DEST
+PACK$:	CLA
+	TAD	OFFSET	/Time to pack... Set source to tmp.
+	DCA	T2
+	TAD	TL	/Set count to 6 words.
+	DCA	LIMIT
+LOOP$:	TAD I	T2	/Get char.
+	ISZ	T2	/Bump source pointer.
+	AND	(77)	/Make SIXBIT.
+	BSW		/High char.
+	DCA	T1	/Save it temporarily.
+	TAD I	T2	/Get next char.
+	ISZ	T2	/Bump source pointer.
+	AND	(77)	/Make SIXBIT.
+	TAD	T1	/Combine with first char.
+	DCA I	DEST	/Save word.
+	ISZ	DEST	/Bump destination pointer.
+	ISZ	LIMIT	/Bump count.
+	JMP	LOOP$	/Repeat.
+	JMP I	PARSE	/Return.
+
+	PAGE
+GETEXT,	0		/Get extension.
+	TAD	SRC	/Get source pointer.
+	DCA	T0	/Save it in tmp.
+	JMS	GETCHR	/Get char.
+	SNA CLA		/Was it NUL?
+	JMP I	GETEXT	/Yes. No extension.
+	ISZ	SRC	/No. Bump source pointer.
+	JMS	LOOK	/Search for NUL.
+	TAD	(-1)	/Decr. length of string.
+	SNA		/Empty string?
+	JMP I	GETEXT	/Yes. No extension.
+	TAD	(2)	/Limit length to 2.
+	SPA
+	CLA
+	TAD	(-2)
+	DCA	LIMIT	/Save as loop count.
+	TAD	SRC	/Get source pointer.
+	DCA	T0	/Save as from tmp.
+	ISZ	GETEXT	/Bump return.
+	JMP I	GETEXT	/Return.
+
+	PAGE
+
+// Copy from T0 to T1 while converting to uppercase.
+CPYNAM,	0
+LOOP$:	JMS	GETCHR	/Get char.
+	TAD	(-140)	/Convert to uppercase...
+	SMA
+	TAD	(-40)
+	TAD	(140)
+	DCA I	T1	/Save it.
+	ISZ	T1	/Bump pointer.
+	ISZ	LIMIT	/Bump count.
+	JMP LOOP$
+	JMP I	CPYNAM	/Return.
+
+GETCHR,	0
+	TAD I	T0	/Get char.
+	ISZ	T0	/Bump pointer.
+	JMP I	GETCHR	/Return.
+
+// Locate the device-name string up to a colon
+// (if present).
+GETDEV,	0		/Get device.
+	TAD	(":)	/Seek device separator.
+	JMS	LOOK
+	TAD	(-1)	/Decr. string length.
+	SNA		/Only ":" found?
+	ISZ SRC		/Yes. Use default.
+	SNA SPA		/Colon found and len>0?
+	JMP I GETDEV	/No. not found. Return.
+	TAD	(-4)	/Limit length to 4.
+	SMA
+	CLA
+	TAD	(4)
+	CIA
+	DCA	LIMIT	/Save as loop count.
+	TAD	SRC	/Get source pointer.
+	DCA	T1	/Save it tmp.
+	TAD	T0	/Get ptr to filename.
+	DCA	SRC	/Save it as new source pointer.
+	TAD	T1	/Get old source pointer.
+	DCA	T0	/Save for copy.
+	ISZ	GETDEV	/Bump return.
+	JMP I	GETDEV	/Return.
+
+	/No device found. Copy only filename at end.
+NODEV,	CLA
+	TAD	(-4)
+	DCA	TL
+	TAD	(TEMP+4)
+	DCA	OFFSET
+	IAC RAL CLL
+	TAD	DEST
+	DCA	DEST
+	JMP	DONAME
+
+LOOK,	0		/Search for char or EOS.
+	CIA		/Make compare out of char.
+	DCA	T1	/Save compare.
+	TAD	SRC	/Get source pointer.
+	DCA	T0	/Save as tmp pointer.
+	DCA	LIMIT	/Clear count.
+1$:	ISZ	LIMIT	/Bump count.
+	JMS	GETCHR	/Get char.
+	SNA		/EOS?
+	JMP	2$	/Yes.
+	TAD	T1	/Compare.
+	SZA CLA		/Equals?
+	JMP	1$	/No. Repeat.
+	TAD	LIMIT	/Yes. Get count.
+	JMP I	LOOK	/Return.
+2$:	TAD	LIMIT	/EOS. Get count.
+	CIA		/Negate.
+	JMP I	LOOK	/And return.
+
+// Locate the main filename string, up to the
+// extention (if any).
+GETNAM,	0		/Get file name.
+	TAD	(".)	/Look out for extension separator.
+	JMS	LOOK
+	SMA		/If positive, make negative.
+	CIA
+	IAC		/Decr. length by one.
+	SNA		/Zero length?
+	JMP I	GETNAM	/Yes. Return. No filename.
+	TAD	(6)	/Limit length to 6.
+	SPA
+	CLA
+	TAD	(-6)
+	DCA	LIMIT	/Save as loop count.
+	TAD	SRC	/Get source pointer.
+	DCA	T1	/Save tmp.
+	CMA		/Get extension separator pointer.
+	TAD	T0
+	DCA	SRC	/Save as new source pointer.
+	TAD	T1	/Get old source pointer.
+	DCA	T0	/Save as from pointer for copy.
+	ISZ	GETNAM	/Bump return.
+	JMP I	GETNAM	/Return.
+
+
 / FILEIO IS A FILE I/O PACKAGE FOR OS/8
 / IT CONSISTS OF THE FOLLOWING ROUTINES:
 /
@@ -647,14 +854,12 @@ LOOP$:	TAD I INPTR	/ Loop copying
 /	NORMAL RETURN
 /
 / The appropriate File Block must have been copied into
-/ THEFIB before calling FILEIO.
+/ THEFIB before calling these routines.
 /
-	.EXTERNAL SBFILE, SBDEV
-
 	USR=7700
-
 	.SBTTL Low level OS8 interfaces
 
+	PAGE
 /
 /	FILEIO Dispatcher
 /
@@ -745,7 +950,7 @@ DODISP,	DODISP;0
 /	>=0	FILE NOT FOUND. NEW FILE CREATED.
 /	<0	FATAL DEVICE ERROR
 IOPEN1,	0
-	TAD (SBFILE)	/ Force filename addr
+	TAD (FILNAM)	/ Force filename addr
 	DCA NAME$	/ ( it gets overwritten )
 	TAD DEVNUM	/ Device num in AC
 	OS8FUN 2	/ Lookup file on this device
@@ -770,10 +975,6 @@ SIZE$:	0
 	TAD NBLKS	/ last=first+size
 	TAD FIRST
 	DCA LAST
-	CALL COPY	/ Copy filename
-	-4
-	SBFILE
-	FILNAM
 	JMP I IOPEN1
 
 ERRP,/	CLA
@@ -793,13 +994,13 @@ ERRP,/	CLA
 /		<0	FATAL ERROR
 /
 OOPEN1,	0
-	TAD (SBFILE)	/ Parse puts name here
+	TAD (FILNAM)	/ Parse puts name here
 	DCA 1$
 	TAD DEVNUM	/ Device #
 	CIF	10
 	JMS	USR	/CALL USR
 	3		/ENTER
-1$:	SBFILE		/ First output block
+1$:	FILNAM		/ First output block
 2$:	0		/ Neg out limit
 	JMP	ERR1
 
@@ -815,15 +1016,6 @@ OOPEN1,	0
 	CIA
 	TAD 1$		/ plus start
 	DCA LAST	/ gives end block.
-
-	TAD (SBFILE-1)	/ Copy name to FIB
-	DCA X1
-	TAD (-4)
-	DCA LC
-LOOP$:	TAD I X1
-	DCA I X0
-	ISZ LC
-	JMP LOOP$
 
 	TAD 7666	/ Current date
 	DCA FILDAT	/SET FILE DATE
