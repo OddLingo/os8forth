@@ -185,6 +185,7 @@ LAYDN,	0
 // PDP-8 code that implements the "Forth machine".
 // It is usually invisible to the Forth programmer.
 	.RSECT ENGINE
+	FIELD 0
 	.SBTTL Startup
 	.ENABLE SIXBIT
 
